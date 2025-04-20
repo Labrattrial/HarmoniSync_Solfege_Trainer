@@ -3,7 +3,8 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_sound/flutter_sound.dart';
 import 'package:permission_handler/permission_handler.dart';
-import '../utils/note_utils.dart'; // Import the NoteUtils class
+import '../utils/note_utils.dart';
+import '../widgets/score_sheet_widget.dart';
 
 class PitchDetectorScreen extends StatefulWidget {
   const PitchDetectorScreen({super.key});
@@ -19,6 +20,13 @@ class _PitchDetectorScreenState extends State<PitchDetectorScreen> {
   double? _detectedPitch;
   String? _detectedNote;
   Timer? _throttle;
+  int _currentNoteIndex = 0;
+  bool _hasMatched = false;
+  List<bool> _noteMatched = List.generate(8, (index) => false);
+
+  final solfegeFrequencies = [
+    'C4', 'D4', 'E4', 'F4', 'G4', 'A4', 'B4', 'C5',
+  ];
 
   @override
   void initState() {
@@ -36,7 +44,14 @@ class _PitchDetectorScreenState extends State<PitchDetectorScreen> {
     if (_isRecording) {
       await _audioStreamSub?.cancel();
       await _recorder.stopRecorder();
-      setState(() => _isRecording = false);
+      setState(() {
+        _isRecording = false;
+        _detectedPitch = null;
+        _detectedNote = null;
+        _currentNoteIndex = 0;
+        _hasMatched = false;
+        _noteMatched = List.generate(8, (index) => false); // Reset the match status
+      });
     } else {
       final audioStreamController = StreamController<Uint8List>();
 
@@ -54,7 +69,13 @@ class _PitchDetectorScreenState extends State<PitchDetectorScreen> {
         _throttle = Timer(const Duration(milliseconds: 100), () {});
       });
 
-      setState(() => _isRecording = true);
+      setState(() {
+        _isRecording = true;
+        _detectedPitch = null;
+        _detectedNote = null;
+        _currentNoteIndex = 0;
+        _hasMatched = false;
+      });
     }
   }
 
@@ -105,16 +126,29 @@ class _PitchDetectorScreenState extends State<PitchDetectorScreen> {
 
     if (tauEstimate != -1) {
       double pitch = sampleRate / tauEstimate;
-      String? note = NoteUtils.frequencyToNote(pitch); // Convert frequency to note
+      String detected = NoteUtils.frequencyToNote(pitch);
+
       setState(() {
         _detectedPitch = pitch;
-        _detectedNote = note;
+        _detectedNote = detected;
+
+        if (!_hasMatched &&
+            detected == NoteUtils.frequencyToNote(
+              NoteUtils.noteFrequencies[solfegeFrequencies[_currentNoteIndex]]!,
+            )) {
+          _noteMatched[_currentNoteIndex] = true; // Mark this note as matched
+          Future.delayed(const Duration(milliseconds: 600), () {
+            setState(() {
+              if (_currentNoteIndex < solfegeFrequencies.length - 1) {
+                _currentNoteIndex++;
+                _hasMatched = false;
+              }
+            });
+          });
+        }
       });
     } else {
-      setState(() {
-        _detectedPitch = null;
-        _detectedNote = null;
-      });
+      setState(() => _detectedPitch = null);
     }
   }
 
@@ -128,26 +162,74 @@ class _PitchDetectorScreenState extends State<PitchDetectorScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final screenHeight = MediaQuery.of(context).size.height;
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
+
     return Scaffold(
-      appBar: AppBar(title: const Text("Pitch Detector")),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              _detectedPitch != null
-                  ? "Pitch: ${_detectedPitch!.toStringAsFixed(2)} Hz\nNote: $_detectedNote"
-                  : "No pitch detected",
-              style: const TextStyle(fontSize: 24),
-              textAlign: TextAlign.center,
+      appBar: AppBar(
+        title: const Text("Solfege Pitch Trainer"),
+        backgroundColor: Colors.blueAccent,
+        centerTitle: true,
+      ),
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          return SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: constraints.maxHeight,
+                ),
+                child: IntrinsicHeight(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      const SizedBox(height: 10),
+                      Text(
+                        _detectedPitch != null
+                            ? "🎵 Pitch: ${_detectedPitch!.toStringAsFixed(2)} Hz\n🎶 Note: $_detectedNote"
+                            : "Press start to begin",
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: isLandscape ? 20 : 22,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black87,
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      ScoreSheetWidget(
+                        detectedNote: _isRecording ? _detectedNote : null,
+                        currentIndex: _isRecording ? _currentNoteIndex : -1,
+                        noteMatched: _noteMatched, // Pass the matched notes
+                      ),
+                      const Spacer(),
+                      ElevatedButton(
+                        onPressed: _startStopRecording,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blueAccent,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          padding: EdgeInsets.symmetric(
+                            horizontal: isLandscape ? 40 : 24,
+                            vertical: isLandscape ? 20 : 16,
+                          ),
+                          textStyle: TextStyle(
+                            fontSize: isLandscape ? 18 : 20,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        child: Text(_isRecording ? "⏹ Stop" : "🎙 Start"),
+                      ),
+                      const SizedBox(height: 30),
+                    ],
+                  ),
+                ),
+              ),
             ),
-            const SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: _startStopRecording,
-              child: Text(_isRecording ? "Stop" : "Start"),
-            ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
