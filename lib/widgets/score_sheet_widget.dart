@@ -5,13 +5,11 @@ import '../utils/note_utils.dart';
 class ScoreSheetWidget extends StatelessWidget {
   final String? detectedNote;
   final int currentIndex;
-  final List<bool> noteMatched; // Track matched notes
 
   const ScoreSheetWidget({
     super.key,
     this.detectedNote,
     required this.currentIndex,
-    required this.noteMatched,
   });
 
   @override
@@ -20,7 +18,7 @@ class ScoreSheetWidget extends StatelessWidget {
       children: [
         CustomPaint(
           size: const Size(double.infinity, 180),
-          painter: ScoreSheetPainter(detectedNote, currentIndex, noteMatched),
+          painter: ScoreSheetPainter(detectedNote, currentIndex),
         ),
         Positioned(
           left: 10,
@@ -39,9 +37,8 @@ class ScoreSheetWidget extends StatelessWidget {
 class ScoreSheetPainter extends CustomPainter {
   final String? detectedNote;
   final int currentIndex;
-  final List<bool> noteMatched;
 
-  ScoreSheetPainter(this.detectedNote, this.currentIndex, this.noteMatched);
+  ScoreSheetPainter(this.detectedNote, this.currentIndex);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -67,9 +64,7 @@ class ScoreSheetPainter extends CustomPainter {
       final centerY = spacing * 5 - noteOffset + 20;
 
       Color noteColor = Colors.black;
-      if (noteMatched[i]) {
-        noteColor = Colors.green; // Stay green if matched
-      } else if (i == currentIndex && detectedNote != null) {
+      if (i == currentIndex && detectedNote != null) {
         if (NoteUtils.frequencyToNote(NoteUtils.noteFrequencies[noteFrequencies[i]]!) == detectedNote) {
           noteColor = Colors.green;
         } else {

@@ -22,7 +22,6 @@ class _PitchDetectorScreenState extends State<PitchDetectorScreen> {
   Timer? _throttle;
   int _currentNoteIndex = 0;
   bool _hasMatched = false;
-  List<bool> _noteMatched = List.generate(8, (index) => false);
 
   final solfegeFrequencies = [
     'C4', 'D4', 'E4', 'F4', 'G4', 'A4', 'B4', 'C5',
@@ -50,7 +49,6 @@ class _PitchDetectorScreenState extends State<PitchDetectorScreen> {
         _detectedNote = null;
         _currentNoteIndex = 0;
         _hasMatched = false;
-        _noteMatched = List.generate(8, (index) => false); // Reset the match status
       });
     } else {
       final audioStreamController = StreamController<Uint8List>();
@@ -136,7 +134,7 @@ class _PitchDetectorScreenState extends State<PitchDetectorScreen> {
             detected == NoteUtils.frequencyToNote(
               NoteUtils.noteFrequencies[solfegeFrequencies[_currentNoteIndex]]!,
             )) {
-          _noteMatched[_currentNoteIndex] = true; // Mark this note as matched
+          _hasMatched = true;
           Future.delayed(const Duration(milliseconds: 600), () {
             setState(() {
               if (_currentNoteIndex < solfegeFrequencies.length - 1) {
@@ -201,7 +199,6 @@ class _PitchDetectorScreenState extends State<PitchDetectorScreen> {
                       ScoreSheetWidget(
                         detectedNote: _isRecording ? _detectedNote : null,
                         currentIndex: _isRecording ? _currentNoteIndex : -1,
-                        noteMatched: _noteMatched, // Pass the matched notes
                       ),
                       const Spacer(),
                       ElevatedButton(
