@@ -21,7 +21,7 @@
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize"
-            android:screenOrientation="landscape"> <!-- Optional: Set to landscape if needed -->
+            android:screenOrientation="portrait"> <!-- Optional: Set to landscape if needed -->
             <!-- Optional: Set to landscape if needed -->
 
             <meta-data
