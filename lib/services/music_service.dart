@@ -13,6 +13,12 @@ class Note {
   final List<Slur> slurs;
   final bool hasDot;
   final int? alter; // for sharps and flats
+  
+  // Properties to store slur positions
+  double? slurStartX;
+  double? slurStartY;
+  double? slurEndX;
+  double? slurEndY;
 
   Note({
     required this.step,
@@ -25,6 +31,10 @@ class Note {
     this.slurs = const [],
     this.hasDot = false,
     this.alter,
+    this.slurStartX,
+    this.slurStartY,
+    this.slurEndX,
+    this.slurEndY,
   });
 
   factory Note.fromXmlElement(XmlElement noteElem) {

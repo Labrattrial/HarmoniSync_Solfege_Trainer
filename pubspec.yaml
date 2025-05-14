@@ -94,3 +94,8 @@ flutter:
     - assets/lvl1.musicxml
     - assets/lvl2.musicxml
     - assets/lvl3.musicxml
+
+  fonts:
+    - family: Bravura
+      fonts:
+        - asset: assets/fonts/Bravura.otf

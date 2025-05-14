@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/music_service.dart';
+import '../utils/music_fonts.dart';
 
 class MusicSheet extends StatelessWidget {
   final Score score;
@@ -13,12 +14,12 @@ class MusicSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     // Calculate total width needed for all measures
     final measureCount = score.measures.length;
-    final minMeasureWidth = 120.0;
-    final totalWidth = (measureCount * minMeasureWidth) + 140.0; // margin for clef/time signature
+    final minMeasureWidth = 160.0;
+    final totalWidth = (measureCount * minMeasureWidth) + 200.0; // margin for clef/time signature
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Container(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(20),
         width: totalWidth,
         child: CustomPaint(
           painter: MusicSheetPainter(score: score),
@@ -31,13 +32,19 @@ class MusicSheet extends StatelessWidget {
 
 class MusicSheetPainter extends CustomPainter {
   final Score score;
-  static const double staffSpacing = 12.0; // Increased for better readability
-  static const double lineWidth = 1.5; // Slightly thicker lines
-  static const double noteSize = 10.0; // Larger notes
-  static const double stemLength = 25.0; // Longer stems
-  static const double beamSpacing = 4.0;
-  static const double ledgerLineLength = 8.0;
-  static const double measureWidth = 100.0; // Width for each measure
+  // Standard music engraving measurements
+  static const double staffSpacing = 10.0;   // Space between staff lines
+  static const double lineWidth = 1.2;      // Staff line thickness
+  static const double noteSize = 24.0;      // Note head size
+  static const double stemLength = 40.0;    // Standard stem length
+  static const double beamSpacing = 8.0;    // Space between beams
+  static const double ledgerLineLength = 16.0; // Length of ledger lines
+  static const double measureWidth = 160.0;  // Width for each measure
+
+  // Staff positioning
+  static const double staffStartX = 80.0;   // Left margin for staff
+  static const double staffStartY = 50.0;   // Top margin for staff
+  static const double clefOffset = 85.0;     // Vertical offset for treble clef
 
   MusicSheetPainter({required this.score});
 
@@ -62,14 +69,13 @@ class MusicSheetPainter extends CustomPainter {
   }
 
   void _drawStaff(Canvas canvas, Size size, Paint paint) {
-    final startX = 60.0; // Increased margin
     final endX = size.width - 20.0;
-    final startY = 80.0; // Increased top margin
-
+    paint.strokeWidth = lineWidth;
+    
     for (var i = 0; i < 5; i++) {
-      final y = startY + (i * staffSpacing);
+      final y = staffStartY + (i * staffSpacing);
       canvas.drawLine(
-        Offset(startX, y),
+        Offset(staffStartX, y),
         Offset(endX, y),
         paint,
       );
@@ -77,174 +83,219 @@ class MusicSheetPainter extends CustomPainter {
   }
 
   void _drawClef(Canvas canvas, Size size, Paint paint) {
-    final path = Path();
-    final startX = 60.0;
-    final startY = 40.0;
-
-    // Draw a more detailed treble clef
-    path.moveTo(startX, startY + 60);
-    path.quadraticBezierTo(
-      startX + 5,
-      startY + 40,
-      startX + 15,
-      startY + 50,
-    );
-    path.quadraticBezierTo(
-      startX + 25,
-      startY + 60,
-      startX + 15,
-      startY + 70,
-    );
-    path.quadraticBezierTo(
-      startX + 5,
-      startY + 80,
-      startX,
-      startY + 60,
-    );
-
-    // Add the curl
-    path.moveTo(startX + 15, startY + 70);
-    path.quadraticBezierTo(
-      startX + 20,
-      startY + 75,
-      startX + 25,
-      startY + 70,
-    );
-
-    canvas.drawPath(path, paint);
-  }
-
-  void _drawTimeSignature(Canvas canvas, Size size, Paint paint) {
-    final startX = 90.0;
-    final startY = 60.0;
-
+    // G clef (treble clef) should curl around the G line (second line from bottom)
     final textPainter = TextPainter(
       text: TextSpan(
-        text: '${score.beats}/${score.beatType}',
+        text: BravuraFont.trebleClef,
         style: const TextStyle(
+          fontFamily: 'Bravura',
+          fontSize: 48,  // Further reduced size
           color: Colors.black,
-          fontSize: 20,
-          fontWeight: FontWeight.bold,
         ),
       ),
       textDirection: TextDirection.ltr,
     );
     textPainter.layout();
-    textPainter.paint(canvas, Offset(startX, startY));
+    
+    // Position clef so it curls around the G line
+    final gLineY = staffStartY + staffSpacing * 3; // Second line from bottom
+    final clefY = gLineY - textPainter.height * 0.52; // Further lowered the clef
+    textPainter.paint(canvas, Offset(staffStartX + 4, clefY)); // Moved further right with positive offset
+  }
+
+  void _drawTimeSignature(Canvas canvas, Size size, Paint paint) {
+    final beatsText = BravuraFont.getTimeSignature(score.beats);
+    final beatTypeText = BravuraFont.getTimeSignature(score.beatType);
+    
+    // Draw numerator (top number)
+    final numeratorPainter = TextPainter(
+      text: TextSpan(
+        text: beatsText,
+        style: const TextStyle(
+          fontFamily: 'Bravura',
+          fontSize: 36,
+          color: Colors.black,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    );
+    numeratorPainter.layout();
+    
+    // Draw denominator (bottom number)
+    final denominatorPainter = TextPainter(
+      text: TextSpan(
+        text: beatTypeText,
+        style: const TextStyle(
+          fontFamily: 'Bravura',
+          fontSize: 36,
+          color: Colors.black,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    );
+    denominatorPainter.layout();
+    
+    // Position time signature after clef with proper spacing
+    final timeX = staffStartX + 65;
+    
+    // Center the numbers vertically in the staff
+    final staffCenterY = staffStartY + (staffSpacing * 2);
+    final totalHeight = numeratorPainter.height + denominatorPainter.height;
+    final spacing = -120.0; // Dramatically increased overlap (10x tighter)
+    
+    // Calculate Y positions to center the entire time signature in the staff
+    final numeratorY = staffCenterY - (totalHeight + spacing) / 2;
+    final denominatorY = numeratorY + numeratorPainter.height + spacing;
+    
+    // Draw the numbers
+    numeratorPainter.paint(canvas, Offset(timeX, numeratorY));
+    denominatorPainter.paint(canvas, Offset(timeX, denominatorY));
   }
 
   void _drawMeasures(Canvas canvas, Size size, Paint paint) {
-    final startY = 80.0;
     final staffHeight = staffSpacing * 4;
     final measureCount = score.measures.length;
-    final minMeasureWidth = 120.0;
-    final totalWidth = size.width - 140.0;
-    final measureWidth = totalWidth / measureCount;
-    double currentX = 120.0;
+    final totalWidth = size.width - 180.0;
+    final measureWidth = (totalWidth / measureCount).clamp(160.0, 240.0);
+    double currentX = staffStartX + 80.0; // Start after clef and time signature
 
     for (int m = 0; m < measureCount; m++) {
       final measure = score.measures[m];
-      // --- Engraving-accurate barline ---
-      // Barlines extend slightly above and below the staff
+      
+      // Draw barline
       canvas.drawLine(
-        Offset(currentX, startY - 2),
-        Offset(currentX, startY + staffHeight + 2),
-        paint,
+        Offset(currentX, staffStartY - 2),
+        Offset(currentX, staffStartY + staffHeight + 2),
+        paint..strokeWidth = lineWidth,
       );
-      // Proportional note spacing: wider for longer notes
+
+      // Calculate note spacing within measure
       final noteCount = measure.notes.length;
-      double noteSpacing = 0;
+      double noteSpacing = measureWidth / (noteCount + 1);
+      
+      // Adjust spacing based on note types
       if (noteCount > 1) {
-        // Give more space for whole/half notes, less for short notes
         final longNotes = measure.notes.where((n) => n.type == 'whole' || n.type == 'half').length;
         final shortNotes = noteCount - longNotes;
-        final baseSpacing = ((measureWidth - 20) / (noteCount - 1)).clamp(30.0, 60.0);
-        noteSpacing = baseSpacing + (longNotes > 0 ? 10.0 : 0.0) - (shortNotes > 0 ? 5.0 : 0.0);
+        noteSpacing = ((measureWidth - 50) / noteCount).clamp(35.0, 70.0);
+        if (longNotes > 0) noteSpacing += 12.0;
+        if (shortNotes > 2) noteSpacing -= 6.0;
       }
-      double noteX = currentX + 20.0;
+
+      // Draw notes
+      double noteX = currentX + 25.0;
       for (final note in measure.notes) {
-        if (note.isRest) {
-          _drawRest(canvas, noteX, startY, note, paint);
-        } else {
-          _drawNote(canvas, noteX, startY, note, paint);
+        final noteY = _getNoteY(note, staffStartY);
+        
+        // Draw ledger lines if needed
+        _drawLedgerLines(canvas, noteX, noteY, staffStartY, paint);
+        
+        // Draw accidentals
+        if (note.alter != null && note.alter != 0) {
+          _drawAccidental(canvas, noteX - 20, noteY, note.alter!, paint);
         }
+        
+        if (note.isRest) {
+          _drawRest(canvas, noteX, noteY, note, paint);
+        } else {
+          // Draw note components in correct order
+          _drawNoteHead(canvas, noteX, noteY, note, paint);
+          
+          if (_hasStem(note.type)) {
+            _drawStem(canvas, noteX, noteY, note, paint);
+          }
+          
+          if (_hasFlag(note.type)) {
+            _drawFlag(canvas, noteX, noteY, note, paint);
+          }
+          
+          if (note.hasDot) {
+            _drawDot(canvas, noteX + noteSize/2 + 6, noteY, paint);
+          }
+        }
+        
+        // Draw slurs if present
+        if (note.slurs.isNotEmpty) {
+          _drawSlurs(canvas, noteX, noteY, note, paint);
+        }
+        
         noteX += noteSpacing;
       }
-      // Move to next measure
+
       currentX += measureWidth;
     }
-    // Final barline
+
+    // Final double barline
     canvas.drawLine(
-      Offset(currentX, startY - 2),
-      Offset(currentX, startY + staffHeight + 2),
-      paint,
+      Offset(currentX, staffStartY - 2),
+      Offset(currentX, staffStartY + staffHeight + 2),
+      paint..strokeWidth = lineWidth,
+    );
+    canvas.drawLine(
+      Offset(currentX + 4, staffStartY - 2),
+      Offset(currentX + 4, staffStartY + staffHeight + 2),
+      paint..strokeWidth = lineWidth * 2,
     );
   }
 
   void _drawNote(Canvas canvas, double x, double startY, Note note, Paint paint) {
-    final y = _getNoteY(note, startY);
+    _drawLedgerLines(canvas, x, startY, 80.0, paint);
 
-    // Draw ledger lines if needed
-    _drawLedgerLines(canvas, x, y, startY, paint);
-
-    // Draw accidental if needed
     if (note.alter != null && note.alter != 0) {
-      _drawAccidental(canvas, x - 15, y, note.alter!, paint);
+      _drawAccidental(canvas, x - 20, startY, note.alter!, paint);
     }
 
-    // Draw note head (filled or open)
-    _drawNoteHead(canvas, x, y, note, paint);
+    _drawNoteHead(canvas, x, startY, note, paint);
 
-    // Draw stem if needed
     if (_hasStem(note.type)) {
-      _drawStem(canvas, x, y, note, paint);
+      _drawStem(canvas, x, startY, note, paint);
     }
 
-    // Draw flags if needed
     if (_hasFlag(note.type)) {
-      _drawFlag(canvas, x, y, note, paint);
+      _drawFlag(canvas, x, startY, note, paint);
     }
 
-    // Draw dot if needed
     if (note.hasDot) {
-      _drawDot(canvas, x, y, paint);
+      _drawDot(canvas, x, startY, paint);
     }
 
-    // Draw slurs if needed
     if (note.slurs.isNotEmpty) {
-      _drawSlurs(canvas, x, y, note, paint);
-    }
-
-    // Draw triplet if needed
-    if (note.type == 'triplet') {
-      _drawTriplet(canvas, x, y, paint);
+      _drawSlurs(canvas, x, startY, note, paint);
     }
   }
 
   void _drawNoteHead(Canvas canvas, double x, double y, Note note, Paint paint) {
-    // --- Engraving-accurate notehead ---
-    // Elliptical, tilted (about 20 degrees), open or filled as needed
-    final width = noteSize * 2.0;
-    final height = noteSize * 1.2;
-    final angle = 20 * 3.14159 / 180; // 20 degrees in radians
-    final path = Path();
-    // Draw an ellipse by transforming the canvas
-    canvas.save();
-    canvas.translate(x, y);
-    canvas.rotate(angle);
-    Rect oval = Rect.fromCenter(center: Offset(0, 0), width: width, height: height);
+    final text = note.type == 'whole' ? BravuraFont.noteheadWhole :
+                note.type == 'half' ? BravuraFont.noteheadHalf :
+                BravuraFont.noteheadBlack;
+
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: TextStyle(
+          fontFamily: 'Bravura',
+          fontSize: noteSize,
+          height: 1.0,
+          color: Colors.black,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    );
+    textPainter.layout();
+    
+    // Center the notehead precisely on the staff line or space
+    final noteX = x - textPainter.width / 2;
+    final noteY = y - textPainter.height / 2;
+
+    // For half and whole notes, ensure crisp edges
     if (note.type == 'half' || note.type == 'whole') {
-      // Open notehead
-      canvas.drawOval(oval, paint);
+      paint.style = PaintingStyle.stroke;
+      paint.strokeWidth = lineWidth;
     } else {
-      // Filled notehead
-      final fillPaint = Paint()
-        ..color = Colors.black
-        ..style = PaintingStyle.fill;
-      canvas.drawOval(oval, fillPaint);
-      canvas.drawOval(oval, paint);
+      paint.style = PaintingStyle.fill;
     }
-    canvas.restore();
+    
+    textPainter.paint(canvas, Offset(noteX, noteY));
   }
 
   bool _hasStem(String type) {
@@ -256,262 +307,267 @@ class MusicSheetPainter extends CustomPainter {
   }
 
   void _drawStem(Canvas canvas, double x, double y, Note note, Paint paint) {
-    // --- Engraving-accurate stem ---
-    // Stems are 3.5 staff spaces (one octave) long
-    final stemLengthEngraved = staffSpacing * 3.5;
-    final middleLineY = _getNoteY(Note(step: 'B', octave: 4, type: note.type, duration: note.duration, isRest: false), y);
-    final stemUp = y > middleLineY;
-    double stemX, stemY;
-    if (note.type == 'half' || note.type == 'whole') {
-      if (stemUp) {
-        // Stem up, right side
-        stemX = x + noteSize;
-        stemY = y - stemLengthEngraved;
-        canvas.drawLine(
-          Offset(stemX, y),
-          Offset(stemX, stemY),
-          paint,
-        );
-      } else {
-        // Stem down, left side
-        stemX = x - noteSize;
-        stemY = y + stemLengthEngraved;
-        canvas.drawLine(
-          Offset(stemX, y),
-          Offset(stemX, stemY),
-          paint,
-        );
-      }
-      return;
+    // Standard stem direction rules
+    final middleLineY = staffStartY + (staffSpacing * 2);
+    final stemUp = y >= middleLineY;
+    
+    final stemPaint = Paint()
+      ..color = Colors.black
+      ..strokeWidth = lineWidth * 1.2  // Slightly thicker stem
+      ..style = PaintingStyle.stroke;
+    
+    if (stemUp) {
+      // Attach stem to right side of notehead
+      canvas.drawLine(
+        Offset(x + noteSize/3.5, y - noteSize/8),  // Better stem attachment
+        Offset(x + noteSize/3.5, y - stemLength),
+        stemPaint,
+      );
+    } else {
+      // Attach stem to left side of notehead
+      canvas.drawLine(
+        Offset(x - noteSize/3.5, y + noteSize/8),  // Better stem attachment
+        Offset(x - noteSize/3.5, y + stemLength),
+        stemPaint,
+      );
     }
-    // Default for other note types
-    stemX = stemUp ? x + noteSize : x - noteSize;
-    stemY = stemUp ? y - stemLengthEngraved : y + stemLengthEngraved;
-    canvas.drawLine(
-      Offset(stemX, y),
-      Offset(stemX, stemY),
-      paint,
-    );
   }
 
   void _drawFlag(Canvas canvas, double x, double y, Note note, Paint paint) {
-    // --- Engraving-accurate flag ---
-    // Curved, graceful, and correct direction
-    final middleLineY = _getNoteY(Note(step: 'B', octave: 4, type: note.type, duration: note.duration, isRest: false), y);
-    final stemUp = y > middleLineY;
-    final stemX = stemUp ? x + noteSize : x - noteSize;
-    final stemY = stemUp ? y - staffSpacing * 3.5 : y + staffSpacing * 3.5;
-    final flagLength = 14.0;
-    final flagCurve = 8.0;
-    final flagCount = note.type == 'eighth' ? 1 : note.type == '16th' ? 2 : 3;
-    for (int i = 0; i < flagCount; i++) {
-      final offset = i * 5.0;
-      final path = Path();
-      if (stemUp) {
-        path.moveTo(stemX, stemY + offset);
-        path.cubicTo(
-          stemX + flagLength / 3,
-          stemY + offset + flagCurve,
-          stemX + flagLength * 0.8,
-          stemY + offset + flagCurve * 0.7,
-          stemX + flagLength,
-          stemY + offset + flagCurve * 0.5,
-        );
-      } else {
-        path.moveTo(stemX, stemY - offset);
-        path.cubicTo(
-          stemX - flagLength / 3,
-          stemY - offset - flagCurve,
-          stemX - flagLength * 0.8,
-          stemY - offset - flagCurve * 0.7,
-          stemX - flagLength,
-          stemY - offset - flagCurve * 0.5,
-        );
-      }
-      canvas.drawPath(path, paint);
-    }
-  }
+    final middleLineY = staffStartY + (staffSpacing * 2);
+    final stemUp = y >= middleLineY;
+    final text = stemUp ? 
+                (note.type == 'eighth' ? BravuraFont.flag8thUp : BravuraFont.flag16thUp) :
+                (note.type == 'eighth' ? BravuraFont.flag8thDown : BravuraFont.flag16thDown);
 
-  void _drawRest(Canvas canvas, double x, double startY, Note note, Paint paint) {
-    // --- Engraving-accurate rest shapes ---
-    final y = startY + (staffSpacing * 2);
-    final path = Path();
-    switch (note.type) {
-      case 'whole':
-        // Whole rest: rectangle hanging from 4th line
-        path.addRect(Rect.fromLTWH(x - 8, y - staffSpacing, 16, 6));
-        break;
-      case 'half':
-        // Half rest: rectangle sitting on 3rd line
-        path.addRect(Rect.fromLTWH(x - 8, y - staffSpacing / 2, 16, 6));
-        break;
-      case 'quarter':
-        // Quarter rest: standard squiggle
-        path.moveTo(x, y - 10);
-        path.relativeCubicTo(2, 4, -2, 8, 0, 12);
-        path.relativeCubicTo(2, 4, -2, 8, 0, 12);
-        break;
-      case 'eighth':
-        // Eighth rest: 7 shape with dot
-        path.moveTo(x, y - 10);
-        path.lineTo(x + 5, y);
-        path.moveTo(x + 5, y);
-        path.relativeArcToPoint(Offset(3, 3), radius: Radius.circular(2));
-        break;
-      case '16th':
-        // Sixteenth rest: like eighth with extra flag
-        path.moveTo(x, y - 10);
-        path.lineTo(x + 5, y);
-        path.moveTo(x + 5, y);
-        path.relativeArcToPoint(Offset(3, 3), radius: Radius.circular(2));
-        path.moveTo(x + 2, y + 2);
-        path.relativeArcToPoint(Offset(3, 3), radius: Radius.circular(2));
-        break;
-      default:
-        // Default to quarter rest
-        path.moveTo(x, y - 10);
-        path.relativeCubicTo(2, 4, -2, 8, 0, 12);
-        path.relativeCubicTo(2, 4, -2, 8, 0, 12);
-    }
-    canvas.drawPath(path, paint);
-  }
-
-  void _drawTriplet(Canvas canvas, double x, double y, Paint paint) {
-    // --- Engraving-accurate triplet ---
-    // Place '3' above the group
     final textPainter = TextPainter(
-      text: const TextSpan(
-        text: '3',
+      text: TextSpan(
+        text: text,
         style: TextStyle(
+          fontFamily: 'Bravura',
+          fontSize: noteSize * 1.1,  // Slightly larger flag for better visibility
+          height: 1.0,
           color: Colors.black,
-          fontSize: 12,
-          fontWeight: FontWeight.bold,
         ),
       ),
       textDirection: TextDirection.ltr,
     );
     textPainter.layout();
-    textPainter.paint(canvas, Offset(x - 6, y - 35));
+    
+    // Position flag at the end of the stem with better alignment
+    final xPos = stemUp ? 
+                x + noteSize/3.5 - textPainter.width/2 : 
+                x - noteSize/3.5 - textPainter.width/2;
+    final yPos = stemUp ? 
+                y - stemLength + noteSize/4 : 
+                y + stemLength - noteSize * 0.7;
+    textPainter.paint(canvas, Offset(xPos, yPos));
   }
 
-  void _drawRepeatSign(Canvas canvas, double x, double startY, Paint paint) {
-    // Double bar with two dots
-    final top = startY;
-    final bottom = startY + staffSpacing * 4;
-    // Draw two vertical bars
-    canvas.drawLine(Offset(x, top), Offset(x, bottom), paint);
-    canvas.drawLine(Offset(x + 6, top), Offset(x + 6, bottom), paint);
-    // Draw two dots
-    final dotPaint = Paint()..color = Colors.black..style = PaintingStyle.fill;
-    canvas.drawCircle(Offset(x + 10, startY + staffSpacing * 1.5), 2, dotPaint);
-    canvas.drawCircle(Offset(x + 10, startY + staffSpacing * 2.5), 2, dotPaint);
+  void _drawRest(Canvas canvas, double x, double y, Note note, Paint paint) {
+    // Standard rest positions relative to the middle line
+    double restY = staffStartY + staffSpacing * 2; // Middle line
+    
+    // Adjust rest position based on type
+    if (note.type == 'whole') {
+      restY = staffStartY + staffSpacing; // Fourth line from bottom
+    } else if (note.type == 'half') {
+      restY = staffStartY + staffSpacing * 1.5; // Third space from bottom
+    } else if (note.type == 'quarter') {
+      restY = staffStartY + staffSpacing * 2; // Middle line
+    } else if (note.type == 'eighth' || note.type == '16th') {
+      restY = staffStartY + staffSpacing * 2.5; // Second space from top
+    }
+
+    final text = note.type == 'whole' ? BravuraFont.restWhole :
+                note.type == 'half' ? BravuraFont.restHalf :
+                note.type == 'quarter' ? BravuraFont.restQuarter :
+                note.type == 'eighth' ? BravuraFont.rest8th :
+                note.type == '16th' ? BravuraFont.rest16th :
+                BravuraFont.restQuarter;
+
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: TextStyle(
+          fontFamily: 'Bravura',
+          fontSize: noteSize * 0.9,
+          height: 1.0,
+          color: Colors.black,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    );
+    textPainter.layout();
+
+    final restX = x - textPainter.width / 2;
+    textPainter.paint(canvas, Offset(restX, restY - textPainter.height / 2));
+  }
+
+  void _drawAccidental(Canvas canvas, double x, double y, int alter, Paint paint) {
+    final text = alter == 1 ? BravuraFont.accidentalSharp :
+                alter == -1 ? BravuraFont.accidentalFlat :
+                BravuraFont.accidentalNatural;
+
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: TextStyle(
+          fontFamily: 'Bravura',
+          fontSize: noteSize * 0.8,
+          height: 1.0,
+          color: Colors.black,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    );
+    textPainter.layout();
+    
+    // Position accidental to the left of the notehead
+    final accX = x - textPainter.width - 2;
+    final accY = y - textPainter.height / 2;
+    textPainter.paint(canvas, Offset(accX, accY));
+  }
+
+  void _drawDot(Canvas canvas, double x, double y, Paint paint) {
+    final dotPaint = Paint()
+      ..color = Colors.black
+      ..style = PaintingStyle.fill;
+    
+    // Position dot to the right of the notehead, aligned with spaces
+    final dotY = (y / staffSpacing).round() * staffSpacing;
+    canvas.drawCircle(
+      Offset(x + noteSize/2 + 4, dotY),
+      noteSize * 0.15,  // Smaller, more refined dot
+      dotPaint
+    );
+  }
+
+  void _drawSlurs(Canvas canvas, double x, double y, Note note, Paint paint) {
+    // Handle slur start points
+    for (final slur in note.slurs) {
+      if (slur.type == 'start') {
+        // Determine if stem is up or down
+        final middleLineY = staffStartY + (staffSpacing * 2);
+        final stemUp = y >= middleLineY;
+        
+        // Store the starting position for this slur
+        if (stemUp) {
+          // For up-stem notes, start from bottom right
+          note.slurStartX = x + noteSize/3;
+          note.slurStartY = y + noteSize/3;
+        } else {
+          // For down-stem notes, start from top right
+          note.slurStartX = x + noteSize/3;
+          note.slurStartY = y - noteSize/3;
+        }
+      } else if (slur.type == 'stop') {
+        final startX = note.slurStartX ?? x - measureWidth/2;
+        final startY = note.slurStartY ?? y;
+        
+        // Determine if current note's stem is up or down
+        final middleLineY = staffStartY + (staffSpacing * 2);
+        final stemUp = y >= middleLineY;
+        
+        // Calculate end position based on stem direction
+        final endX = x - noteSize/3;
+        final endY = stemUp ? y + noteSize/3 : y - noteSize/3;
+        
+        final path = Path();
+        final dx = endX - startX;
+        final dy = endY - startY;
+        
+        // Adjust curve height based on distance and direction
+        final curveHeight = (dx / 80.0).clamp(20.0, 40.0);
+        final direction = stemUp ? 1 : -1;
+        
+        // Start the slur curve
+        path.moveTo(startX, startY);
+        
+        // Create a smooth curve using cubic Bezier
+        path.cubicTo(
+          startX + dx/3,     // First control point X
+          startY - curveHeight * direction,  // First control point Y
+          startX + dx*2/3,   // Second control point X
+          startY - curveHeight * direction,  // Second control point Y
+          endX,              // End point X
+          endY               // End point Y
+        );
+        
+        // Draw the slur with a refined stroke
+        final slurPaint = Paint()
+          ..color = Colors.black
+          ..strokeWidth = 1.8
+          ..style = PaintingStyle.stroke
+          ..strokeCap = StrokeCap.round;
+        
+        canvas.drawPath(path, slurPaint);
+      }
+    }
   }
 
   void _drawLedgerLines(Canvas canvas, double x, double y, double startY, Paint paint) {
     final staffTop = startY;
     final staffBottom = startY + (staffSpacing * 4);
+    paint.strokeWidth = lineWidth;
     
-    // Calculate the nearest staff line
-    final nearestLine = _getNearestStaffLine(y, startY);
-    
-    if (y < staffTop) {
-      // Draw ledger lines above staff
-      var lineY = nearestLine;
-      while (lineY > y) {
-        _drawLedgerLine(canvas, x, lineY, paint);
-        lineY -= staffSpacing;
-      }
-    } else if (y > staffBottom) {
-      // Draw ledger lines below staff
-      var lineY = nearestLine;
-      while (lineY < y) {
-        _drawLedgerLine(canvas, x, lineY, paint);
-        lineY += staffSpacing;
+    // Draw ledger lines above staff
+    if (y < staffTop - staffSpacing/4) {
+      var currentY = staffTop;
+      while (currentY > y - staffSpacing/4) {
+        currentY -= staffSpacing;
+        _drawLedgerLine(canvas, x, currentY, paint);
       }
     }
-  }
+    
+    // Draw ledger lines below staff
+    if (y > staffBottom + staffSpacing/4) {
+      var currentY = staffBottom;
+      while (currentY < y + staffSpacing/4) {
+        currentY += staffSpacing;
+        _drawLedgerLine(canvas, x, currentY, paint);
+      }
+    }
 
-  double _getNearestStaffLine(double y, double startY) {
-    final staffLines = List.generate(5, (i) => startY + (i * staffSpacing));
-    return staffLines.reduce((a, b) => (y - a).abs() < (y - b).abs() ? a : b);
+    // Special case for middle C
+    if (y >= staffBottom + staffSpacing * 0.75 && y <= staffBottom + staffSpacing * 1.25) {
+      _drawLedgerLine(canvas, x, staffBottom + staffSpacing, paint);
+    }
   }
 
   void _drawLedgerLine(Canvas canvas, double x, double y, Paint paint) {
-    // --- Engraving-accurate ledger line ---
-    // Centered on notehead, not too long
-    final length = noteSize * 2.2;
     canvas.drawLine(
-      Offset(x - length / 2, y),
-      Offset(x + length / 2, y),
+      Offset(x - ledgerLineLength/2, y),
+      Offset(x + ledgerLineLength/2, y),
       paint,
     );
-  }
-
-  void _drawAccidental(Canvas canvas, double x, double y, int alter, Paint paint) {
-    // --- Engraving-accurate accidental placement ---
-    // Place just to the left of the notehead, vertically centered
-    final path = Path();
-    if (alter == 1) { // Sharp
-      path.moveTo(x, y - 10);
-      path.lineTo(x, y + 10);
-      path.moveTo(x - 3, y - 8);
-      path.lineTo(x + 3, y + 8);
-      path.moveTo(x - 3, y + 8);
-      path.lineTo(x + 3, y - 8);
-    } else if (alter == -1) { // Flat
-      path.moveTo(x, y - 10);
-      path.lineTo(x, y + 10);
-      path.quadraticBezierTo(x + 5, y + 5, x, y);
-    } else if (alter == 0) { // Natural
-      path.moveTo(x, y - 10);
-      path.lineTo(x, y + 10);
-      path.moveTo(x - 3, y - 5);
-      path.lineTo(x + 3, y + 5);
-    }
-    canvas.drawPath(path, paint);
-  }
-
-  void _drawDot(Canvas canvas, double x, double y, Paint paint) {
-    // --- Engraving-accurate dot placement ---
-    // Place dot precisely after the notehead, vertically centered
-    canvas.drawCircle(
-      Offset(x + noteSize * 1.5, y),
-      noteSize / 4,
-      paint,
-    );
-  }
-
-  void _drawSlurs(Canvas canvas, double x, double y, Note note, Paint paint) {
-    if (note.slurs.contains('start')) {
-      final path = Path();
-      path.moveTo(x, y - 15);
-      path.quadraticBezierTo(
-        x + 15,
-        y - 25,
-        x + 30,
-        y - 15,
-      );
-      canvas.drawPath(path, paint);
-    }
   }
 
   double _getNoteY(Note note, double startY) {
-    // Standard mapping: E4 (bottom line) is index 0
-    // Each step (line or space) is staffSpacing / 2
-    final noteIndex = _getStaffIndex(note.step, note.octave);
-    final e4LineY = startY + (staffSpacing * 4); // E4 is the bottom line
-    return e4LineY - (noteIndex * staffSpacing / 2);
-  }
-
-  int _getStaffIndex(String step, int octave) {
-    // Map note step/octave to staff index (relative to E4)
-    // C4 = -2, D4 = -1, E4 = 0, F4 = 1, G4 = 2, A4 = 3, B4 = 4, C5 = 5, ...
+    // Standard music notation positioning following the staff pattern:
+    // Each line and space represents a specific note, moving up the scale
+    // Lines from bottom to top: E4, G4, B4, D5, F5
+    // Spaces from bottom to top: F4, A4, C5, E5
     final stepOrder = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
-    final e4Octave = 4;
-    final e4StepIndex = 2; // 'E' in stepOrder
-    final octaveDiff = octave - e4Octave;
-    final stepDiff = stepOrder.indexOf(step) - e4StepIndex;
-    return (octaveDiff * 7) + stepDiff;
+    
+    // Position of middle C (C4) - one ledger line below the staff
+    final middleC = startY + (staffSpacing * 5);
+    
+    // Calculate steps from middle C
+    int stepsFromMiddleC = 0;
+    
+    // Calculate octave difference
+    int octaveDiff = note.octave - 4; // relative to C4
+    stepsFromMiddleC += octaveDiff * 7; // 7 steps per octave
+    
+    // Add steps within the octave
+    int currentStepIndex = stepOrder.indexOf(note.step);
+    int middleCIndex = stepOrder.indexOf('C');
+    stepsFromMiddleC += currentStepIndex - middleCIndex;
+    
+    // Each step is half a staff space
+    // Moving up the staff means subtracting from the Y coordinate
+    return middleC - (stepsFromMiddleC * staffSpacing / 2);
   }
 
   @override
