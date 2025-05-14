@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import '../services/music_service.dart';
+import 'exercise_screen.dart';
 
 class PracticeScreen extends StatelessWidget {
+  const PracticeScreen({super.key});
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -15,18 +19,24 @@ class PracticeScreen extends StatelessWidget {
           children: [
             // Easy Section
             SectionHeader(title: 'Easy'),
-            PracticeItem(title: 'Do Re Mi'),
-            PracticeItem(title: 'Sol La Ti'),
+            PracticeItem(
+              title: MusicService.getLevelTitle('lvl1'),
+              level: 'lvl1',
+            ),
 
             // Medium Section
             SectionHeader(title: 'Medium'),
-            PracticeItem(title: 'Do Re Mi Fa'),
-            PracticeItem(title: 'Sol La Ti Do'),
+            PracticeItem(
+              title: MusicService.getLevelTitle('lvl2'),
+              level: 'lvl2',
+            ),
 
             // Hard Section
             SectionHeader(title: 'Hard'),
-            PracticeItem(title: 'Chromatic Scale'),
-            PracticeItem(title: 'Arpeggios'),
+            PracticeItem(
+              title: MusicService.getLevelTitle('lvl3'),
+              level: 'lvl3',
+            ),
           ],
         ),
       ),
@@ -36,7 +46,7 @@ class PracticeScreen extends StatelessWidget {
 
 class SectionHeader extends StatelessWidget {
   final String title;
-  const SectionHeader({required this.title});
+  const SectionHeader({super.key, required this.title});
 
   @override
   Widget build(BuildContext context) {
@@ -56,24 +66,35 @@ class SectionHeader extends StatelessWidget {
 
 class PracticeItem extends StatelessWidget {
   final String title;
-  const PracticeItem({required this.title});
+  final String level;
+
+  const PracticeItem({
+    super.key, 
+    required this.title,
+    required this.level,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(10),
-      ),
-      margin: EdgeInsets.symmetric(vertical: 8.0),
+      elevation: 2,
+      margin: EdgeInsets.symmetric(vertical: 8),
       child: ListTile(
-        contentPadding: EdgeInsets.all(16.0),
         title: Text(
           title,
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w500),
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w500,
+          ),
         ),
+        trailing: Icon(Icons.arrow_forward_ios, color: Colors.blueAccent),
         onTap: () {
-          // Handle the practice action
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => ExerciseScreen(level: level),
+            ),
+          );
         },
       ),
     );

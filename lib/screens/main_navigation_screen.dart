@@ -4,6 +4,8 @@ import 'sheet_converter_screen.dart';
 import 'progress_screen.dart';
 
 class MainNavigationScreen extends StatefulWidget {
+  const MainNavigationScreen({super.key});
+
   @override
   _MainNavigationScreenState createState() => _MainNavigationScreenState();
 }

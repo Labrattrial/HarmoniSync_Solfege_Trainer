@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'screens/pitch_detector_screen.dart';
+//import 'screens/pitch_detector_screen.dart';
 import 'screens/welcome_screen.dart';
 
 void main() {
@@ -8,6 +8,8 @@ void main() {
 }
 
 class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
  @override
  Widget build(BuildContext context) {
    return MaterialApp(
