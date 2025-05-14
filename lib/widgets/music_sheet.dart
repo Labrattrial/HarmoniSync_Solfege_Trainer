@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/music_service.dart';
 import '../utils/music_fonts.dart';
+import 'dart:math' as math;
 
 class MusicSheet extends StatelessWidget {
   final Score score;
@@ -47,6 +48,11 @@ class MusicSheetPainter extends CustomPainter {
   static const double clefOffset = 85.0;     // Vertical offset for treble clef
 
   MusicSheetPainter({required this.score});
+
+  // Map to store slur start positions by slur number
+  final Map<int, Map<String, double>> _slurStartPositions = {};
+  // Map to store notes involved in each slur
+  final Map<int, List<Note>> _slurNotes = {};
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -153,11 +159,31 @@ class MusicSheetPainter extends CustomPainter {
   }
 
   void _drawMeasures(Canvas canvas, Size size, Paint paint) {
+    // Clear slur tracking at start of drawing
+    _slurStartPositions.clear();
+    _slurNotes.clear();
+
     final staffHeight = staffSpacing * 4;
     final measureCount = score.measures.length;
     final totalWidth = size.width - 180.0;
     final measureWidth = (totalWidth / measureCount).clamp(160.0, 240.0);
-    double currentX = staffStartX + 80.0; // Start after clef and time signature
+    double currentX = staffStartX + 80.0;
+
+    // First pass: collect all notes involved in slurs
+    for (int m = 0; m < measureCount; m++) {
+      final measure = score.measures[m];
+      for (final note in measure.notes) {
+        for (final slur in note.slurs) {
+          if (slur.type == 'start') {
+            _slurNotes[slur.number] = [note];
+          } else if (slur.type == 'stop') {
+            if (_slurNotes.containsKey(slur.number)) {
+              _slurNotes[slur.number]!.add(note);
+            }
+          }
+        }
+      }
+    }
 
     for (int m = 0; m < measureCount; m++) {
       final measure = score.measures[m];
@@ -443,65 +469,91 @@ class MusicSheetPainter extends CustomPainter {
     );
   }
 
+  bool _shouldSlurBeAbove(List<Note> notes) {
+    // Count notes with stems up and down
+    int stemsUp = 0;
+    int stemsDown = 0;
+    
+    for (final note in notes) {
+      // Get note's position relative to middle line
+      final noteY = _getNoteY(note, staffStartY);
+      final middleLineY = staffStartY + (staffSpacing * 2);
+      
+      // Notes above middle line typically have stems down
+      if (noteY < middleLineY) {
+        stemsDown++;
+      } else {
+        stemsUp++;
+      }
+    }
+    
+    // If equal, default to above
+    return stemsDown >= stemsUp;
+  }
+
   void _drawSlurs(Canvas canvas, double x, double y, Note note, Paint paint) {
-    // Handle slur start points
+    final middleLineY = staffStartY + (staffSpacing * 2);
+    final stemUp = y >= middleLineY;
+
     for (final slur in note.slurs) {
       if (slur.type == 'start') {
-        // Determine if stem is up or down
-        final middleLineY = staffStartY + (staffSpacing * 2);
-        final stemUp = y >= middleLineY;
-        
-        // Store the starting position for this slur
-        if (stemUp) {
-          // For up-stem notes, start from bottom right
-          note.slurStartX = x + noteSize/3;
-          note.slurStartY = y + noteSize/3;
-        } else {
-          // For down-stem notes, start from top right
-          note.slurStartX = x + noteSize/3;
-          note.slurStartY = y - noteSize/3;
-        }
+        // Store start position with the slur number
+        _slurStartPositions[slur.number] = {
+          'x': x + (stemUp ? noteSize/3 : noteSize/3),
+          'y': y + (stemUp ? noteSize/3 : -noteSize/3),
+          'stemUp': stemUp ? 1.0 : -1.0
+        };
       } else if (slur.type == 'stop') {
-        final startX = note.slurStartX ?? x - measureWidth/2;
-        final startY = note.slurStartY ?? y;
-        
-        // Determine if current note's stem is up or down
-        final middleLineY = staffStartY + (staffSpacing * 2);
-        final stemUp = y >= middleLineY;
-        
-        // Calculate end position based on stem direction
-        final endX = x - noteSize/3;
-        final endY = stemUp ? y + noteSize/3 : y - noteSize/3;
-        
-        final path = Path();
-        final dx = endX - startX;
-        final dy = endY - startY;
-        
-        // Adjust curve height based on distance and direction
-        final curveHeight = (dx / 80.0).clamp(20.0, 40.0);
-        final direction = stemUp ? 1 : -1;
-        
-        // Start the slur curve
-        path.moveTo(startX, startY);
-        
-        // Create a smooth curve using cubic Bezier
-        path.cubicTo(
-          startX + dx/3,     // First control point X
-          startY - curveHeight * direction,  // First control point Y
-          startX + dx*2/3,   // Second control point X
-          startY - curveHeight * direction,  // Second control point Y
-          endX,              // End point X
-          endY               // End point Y
-        );
-        
-        // Draw the slur with a refined stroke
-        final slurPaint = Paint()
-          ..color = Colors.black
-          ..strokeWidth = 1.8
-          ..style = PaintingStyle.stroke
-          ..strokeCap = StrokeCap.round;
-        
-        canvas.drawPath(path, slurPaint);
+        final startPos = _slurStartPositions[slur.number];
+        if (startPos != null) {
+          final startX = startPos['x']!;
+          final startY = startPos['y']!;
+          final startStemUp = startPos['stemUp']!;
+          
+          // Get all notes involved in this slur
+          final slurredNotes = _slurNotes[slur.number] ?? [];
+          final slurAbove = _shouldSlurBeAbove(slurredNotes);
+          
+          // Calculate end position
+          final endX = x - noteSize/3;
+          final endY = y + (stemUp ? noteSize/3 : -noteSize/3);
+          
+          final path = Path();
+          final dx = endX - startX;
+          final dy = endY - startY;
+          
+          // Adjust curve height based on distance and whether slur is above or below
+          final curveHeight = (dx / 80.0).clamp(20.0, 40.0);
+          final direction = slurAbove ? -1.0 : 1.0; // Invert direction based on slur position
+          
+          // Start the slur curve
+          path.moveTo(startX, startY);
+          
+          // Adjust control points based on slur direction
+          final controlY = slurAbove ? 
+              math.min(startY, endY) - curveHeight : // Above notes
+              math.max(startY, endY) + curveHeight;  // Below notes
+          
+          path.cubicTo(
+            startX + dx/3,     // First control point X
+            controlY,          // First control point Y
+            startX + dx*2/3,   // Second control point X
+            controlY,          // Second control point Y
+            endX,              // End point X
+            endY               // End point Y
+          );
+          
+          final slurPaint = Paint()
+            ..color = Colors.black
+            ..strokeWidth = 1.8
+            ..style = PaintingStyle.stroke
+            ..strokeCap = StrokeCap.round;
+          
+          canvas.drawPath(path, slurPaint);
+          
+          // Remove the start position after drawing
+          _slurStartPositions.remove(slur.number);
+        }
       }
     }
   }
