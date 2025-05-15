@@ -219,14 +219,16 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
                             if (tempBpm > 40) {
                               tempBpm = (tempBpm - 1).clamp(40.0, 244.0);
                               setDialogState(() {}); // Update dialog state
-                              setState(() {
-                                _bpm = tempBpm;
-                                // Restart exercise with new BPM if currently playing
-                                if (_isPlaying) {
-                                  _stopExercise();
-                                  _startExercise();
-                                }
-                              });
+                              if (mounted) {
+                                setState(() {
+                                  _bpm = tempBpm;
+                                  // Restart exercise with new BPM if currently playing
+                                  if (_isPlaying) {
+                                    _stopExercise();
+                                    _startExercise();
+                                  }
+                                });
+                              }
                             }
                           },
                         ),
@@ -246,14 +248,16 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
                             if (tempBpm < 244) {
                               tempBpm = (tempBpm + 1).clamp(40.0, 244.0);
                               setDialogState(() {}); // Update dialog state
-                              setState(() {
-                                _bpm = tempBpm;
-                                // Restart exercise with new BPM if currently playing
-                                if (_isPlaying) {
-                                  _stopExercise();
-                                  _startExercise();
-                                }
-                              });
+                              if (mounted) {
+                                setState(() {
+                                  _bpm = tempBpm;
+                                  // Restart exercise with new BPM if currently playing
+                                  if (_isPlaying) {
+                                    _stopExercise();
+                                    _startExercise();
+                                  }
+                                });
+                              }
                             }
                           },
                         ),
@@ -286,14 +290,16 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
                         onChanged: (value) {
                           tempBpm = value;
                           setDialogState(() {}); // Update dialog state
-                          setState(() {
-                            _bpm = value;
-                            // Restart exercise with new BPM if currently playing
-                            if (_isPlaying) {
-                              _stopExercise();
-                              _startExercise();
-                            }
-                          });
+                          if (mounted) {
+                            setState(() {
+                              _bpm = value;
+                              // Restart exercise with new BPM if currently playing
+                              if (_isPlaying) {
+                                _stopExercise();
+                                _startExercise();
+                              }
+                            });
+                          }
                         },
                       ),
                     ),
@@ -330,15 +336,16 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
                 actions: [
                   TextButton(
                     onPressed: () {
-                      // Apply final BPM value when closing dialog
-                      setState(() {
-                        _bpm = tempBpm;
-                        // Restart exercise with new BPM if currently playing
-                        if (_isPlaying) {
-                          _stopExercise();
-                          _startExercise();
-                        }
-                      });
+                      if (mounted) {
+                        setState(() {
+                          _bpm = tempBpm;
+                          // Restart exercise with new BPM if currently playing
+                          if (_isPlaying) {
+                            _stopExercise();
+                            _startExercise();
+                          }
+                        });
+                      }
                       Navigator.pop(context);
                     },
                     child: const Text(
@@ -356,6 +363,8 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
   }
 
   void _startExercise() {
+    if (!mounted) return;
+    
     // Cancel any existing timers
     _playbackTimer?.cancel();
     
@@ -372,35 +381,38 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
 
     // Get the score from the future
     _scoreFuture.then((score) {
+      if (!mounted) return;
+      
       // Start playback timer with dynamic BPM
       _playbackTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
-        if (mounted) {
-          setState(() {
-            if (!_reachedEnd) {
-              _currentTime += 0.05; // Increment by 50ms
-              
-              // Calculate note duration based on current BPM
-              const double secondsPerMinute = 60.0;
-              final double noteDuration = secondsPerMinute / _bpm;
-              
-              // Update current note index based on dynamic note duration
-              _currentNoteIndex = (_currentTime / noteDuration).floor();
-              
-              // Update expected note
-              _updateExpectedNote(score);
-              
-              // Stop if we've reached the end (last measure position + extra time)
-              if (_currentTime >= _lastMeasurePosition + 10.0) {
-                _reachedEnd = true;
-                _isPlaying = false;
-                _playbackTimer?.cancel();
-                _stopPitchDetection();
-              }
-            }
-          });
-        } else {
+        if (!mounted) {
           timer.cancel();
+          return;
         }
+        
+        setState(() {
+          if (!_reachedEnd) {
+            _currentTime += 0.05; // Increment by 50ms
+            
+            // Calculate note duration based on current BPM
+            const double secondsPerMinute = 60.0;
+            final double noteDuration = secondsPerMinute / _bpm;
+            
+            // Update current note index based on dynamic note duration
+            _currentNoteIndex = (_currentTime / noteDuration).floor();
+            
+            // Update expected note
+            _updateExpectedNote(score);
+            
+            // Stop if we've reached the end (last measure position + extra time)
+            if (_currentTime >= _lastMeasurePosition + 10.0) {
+              _reachedEnd = true;
+              _isPlaying = false;
+              _playbackTimer?.cancel();
+              _stopPitchDetection();
+            }
+          }
+        });
       });
     });
   }
@@ -441,6 +453,8 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
   }
 
   void _resumeExercise() {
+    if (!mounted) return;
+    
     // Ensure no existing timer is running
     _playbackTimer?.cancel();
     
@@ -454,34 +468,37 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
 
     // Get the score from the future
     _scoreFuture.then((score) {
+      if (!mounted) return;
+      
       _playbackTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
-        if (mounted) {
-          setState(() {
-            if (!_reachedEnd) {
-              _currentTime += 0.05;
-              
-              // Calculate note duration based on current BPM
-              const double secondsPerMinute = 60.0;
-              final double noteDuration = secondsPerMinute / _bpm;
-              
-              // Update current note index based on dynamic note duration
-              _currentNoteIndex = (_currentTime / noteDuration).floor();
-              
-              // Update expected note
-              _updateExpectedNote(score);
-              
-              // Stop if we've reached the end (last measure position + extra time)
-              if (_currentTime >= _lastMeasurePosition + 10.0) {
-                _reachedEnd = true;
-                _isPlaying = false;
-                _playbackTimer?.cancel();
-                _stopPitchDetection();
-              }
-            }
-          });
-        } else {
+        if (!mounted) {
           timer.cancel();
+          return;
         }
+        
+        setState(() {
+          if (!_reachedEnd) {
+            _currentTime += 0.05;
+            
+            // Calculate note duration based on current BPM
+            const double secondsPerMinute = 60.0;
+            final double noteDuration = secondsPerMinute / _bpm;
+            
+            // Update current note index based on dynamic note duration
+            _currentNoteIndex = (_currentTime / noteDuration).floor();
+            
+            // Update expected note
+            _updateExpectedNote(score);
+            
+            // Stop if we've reached the end (last measure position + extra time)
+            if (_currentTime >= _lastMeasurePosition + 10.0) {
+              _reachedEnd = true;
+              _isPlaying = false;
+              _playbackTimer?.cancel();
+              _stopPitchDetection();
+            }
+          }
+        });
       });
     });
   }
