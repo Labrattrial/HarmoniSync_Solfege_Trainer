@@ -106,7 +106,7 @@
         <duration>3</duration>
         <voice>1</voice>
         <type>quarter</type>
-        <dot default-x="129.42" default-y="-35"/>
+        <dot/>
         <stem>up</stem>
         <notations>
           <slur type="start" number="1"/>
@@ -121,13 +121,7 @@
         <voice>1</voice>
         <type>eighth</type>
         <stem>up</stem>
-        </note>
-      <note default-x="168.48" default-y="-20">
-        <rest/>
-        <duration>2</duration>
-        <voice>1</voice>
-        <type>quarter</type>
-        </note>
+        </note> 
       </measure>
     <measure number="2" width="102.1">
       <note default-x="13" default-y="-25">

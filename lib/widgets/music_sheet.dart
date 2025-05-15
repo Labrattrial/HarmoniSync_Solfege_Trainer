@@ -15,7 +15,7 @@ class MusicSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     // Calculate total width needed for all measures
     final measureCount = score.measures.length;
-    final minMeasureWidth = 160.0;
+    final minMeasureWidth = 155.0;
     final totalWidth = (measureCount * minMeasureWidth) + 200.0; // margin for clef/time signature
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
@@ -67,6 +67,9 @@ class MusicSheetPainter extends CustomPainter {
     // Draw clef
     _drawClef(canvas, size, paint);
 
+    // Draw key signature
+    _drawKeySignature(canvas, size, paint);
+
     // Draw time signature
     _drawTimeSignature(canvas, size, paint);
 
@@ -107,6 +110,93 @@ class MusicSheetPainter extends CustomPainter {
     final gLineY = staffStartY + staffSpacing * 3; // Second line from bottom
     final clefY = gLineY - textPainter.height * 0.52; // Further lowered the clef
     textPainter.paint(canvas, Offset(staffStartX + 4, clefY)); // Moved further right with positive offset
+  }
+
+  void _drawKeySignature(Canvas canvas, Size size, Paint paint) {
+    final sharps = score.keySharps > 0 ? score.keySharps : 0;
+    final flats = score.keySharps < 0 ? -score.keySharps : 0;
+    if (sharps == 0 && flats == 0) return;
+
+    // Calculate base position aligned with time signature
+    final baseY = staffStartY + staffSpacing * 1.5; // Align with top number of time signature
+
+    final sharpPositions = [
+      baseY + staffSpacing * -1.5,   // F# (top line)
+      baseY + staffSpacing * -0.5,   // C# (third space)
+      baseY + staffSpacing * 2.0,    // G#
+      baseY + staffSpacing * -0.0,   // D#
+      baseY + staffSpacing * 3.0,    // A#
+      baseY + staffSpacing * 0.5,    // E#
+      baseY + staffSpacing * -1.0,   // B#
+    ];
+    final flatPositions = [
+      baseY + staffSpacing * 0.5,    // Bb (middle line)
+      baseY + staffSpacing * 3.0,    // Eb
+      baseY + staffSpacing * 0.0,    // Ab
+      baseY + staffSpacing * 2.5,    // Db
+      baseY + staffSpacing * -0.5,   // Gb
+      baseY + staffSpacing * 2.0,    // Cb
+      baseY + staffSpacing * -1.0,   // Fb
+    ];
+    // Move first sharp closer to clef
+    double x = staffStartX + 38; // Reduced from 48 for tighter placement
+    final accidentalSpacing = 10.0; // Tighter spacing
+    if (sharps > 0) {
+      for (int i = 0; i < sharps && i < sharpPositions.length; i++) {
+        double y = sharpPositions[i];
+        double xOffset = 0.0;
+        if (sharps > 1) {
+          if (i == 0) {
+            y = sharpPositions[1] - 14.0;
+            xOffset = 4.0;
+          } else if (i == 1) {
+            y -= 8.0;
+            xOffset = 4.0;
+          }
+        }
+        _drawKeySignatureAccidental(canvas, x + xOffset, y, 1, paint);
+        if (sharps == 2 && i == 0) {
+          x += 7.0;
+        } else {
+          x += accidentalSpacing;
+        }
+      }
+    } else if (flats > 0) {
+      for (int i = 0; i < flats && i < flatPositions.length; i++) {
+        _drawKeySignatureAccidental(canvas, x, flatPositions[i], -1, paint);
+        x += accidentalSpacing;
+      }
+    }
+  }
+
+  void _drawKeySignatureAccidental(Canvas canvas, double x, double y, int alter, Paint paint) {
+    final text = alter == 1 ? BravuraFont.accidentalSharp :
+                alter == -1 ? BravuraFont.accidentalFlat :
+                BravuraFont.accidentalNatural;
+    final fontSize = noteSize * 1.13; // Larger for key signature
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: TextStyle(
+          fontFamily: 'Bravura',
+          fontSize: fontSize,
+          height: 1.0,
+          color: Colors.black,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    );
+    textPainter.layout();
+    // Center accidental horizontally and vertically on the staff line/space
+    final accX = x - textPainter.width / 2 + 2; // +2 for a more engraved look
+    final accY = y - textPainter.height / 2 + (alter == 1 ? 0.5 : (alter == -1 ? 0.0 : 0.0));
+    canvas.save();
+    // Slight rotation for engraving style
+    canvas.translate(accX + textPainter.width/2, accY + textPainter.height/2);
+    canvas.rotate(alter == 1 ? 0.01 : (alter == -1 ? -0.01 : 0.0));
+    canvas.translate(-(accX + textPainter.width/2), -(accY + textPainter.height/2));
+    textPainter.paint(canvas, Offset(accX, accY));
+    canvas.restore();
   }
 
   void _drawTimeSignature(Canvas canvas, Size size, Paint paint) {
@@ -166,7 +256,41 @@ class MusicSheetPainter extends CustomPainter {
     final staffHeight = staffSpacing * 4;
     final measureCount = score.measures.length;
     final totalWidth = size.width - 180.0;
-    final measureWidth = (totalWidth / measureCount).clamp(160.0, 240.0);
+    
+    // Calculate measure widths based on note content
+    List<double> measureWidths = [];
+    
+    // First pass: analyze measures to determine appropriate widths
+    for (int m = 0; m < measureCount; m++) {
+      final measure = score.measures[m];
+      final noteCount = measure.notes.length;
+      double width = 160.0; // Base minimum width
+      
+      // For measures with many eighth notes, increase the width
+      final eighthNotes = measure.notes.where((n) => 
+        n.type == 'eighth' || n.type == '16th'
+      ).length;
+      
+      // Adjust width based on note count and types
+      if (noteCount >= 6) {
+        width += 40.0; // Add extra space for measures with many notes
+      }
+      if (eighthNotes >= 4) {
+        width += eighthNotes * 5.0; // Extra space for each eighth note
+      }
+      
+      // Make sure width is in reasonable range
+      width = width.clamp(160.0, 240.0);
+      measureWidths.add(width);
+    }
+    
+    // Adjust total if needed to fit available space
+    final requestedTotalWidth = measureWidths.reduce((a, b) => a + b);
+    final scaleFactor = (totalWidth / requestedTotalWidth).clamp(0.85, 1.2);
+    for (int i = 0; i < measureWidths.length; i++) {
+      measureWidths[i] *= scaleFactor;
+    }
+    
     double currentX = staffStartX + 80.0;
 
     // First pass: collect all notes involved in slurs
@@ -187,6 +311,7 @@ class MusicSheetPainter extends CustomPainter {
 
     for (int m = 0; m < measureCount; m++) {
       final measure = score.measures[m];
+      final measureWidth = measureWidths[m];
       
       // Draw barline
       canvas.drawLine(
@@ -201,28 +326,134 @@ class MusicSheetPainter extends CustomPainter {
       
       // Adjust spacing based on note types
       if (noteCount > 1) {
-        final longNotes = measure.notes.where((n) => n.type == 'whole' || n.type == 'half').length;
+        final longNotes = measure.notes.where((n) => 
+          n.type == 'whole' || 
+          n.type == 'half' || 
+          (n.type == 'quarter' && n.hasDot)
+        ).length;
         final shortNotes = noteCount - longNotes;
-        noteSpacing = ((measureWidth - 50) / noteCount).clamp(35.0, 70.0);
-        if (longNotes > 0) noteSpacing += 12.0;
-        if (shortNotes > 2) noteSpacing -= 6.0;
+        
+        // Base spacing calculation
+        noteSpacing = ((measureWidth - 60) / (noteCount + 0.5)).clamp(30.0, 75.0);
+        
+        // Adjustments based on note types
+        if (longNotes > 0) noteSpacing += 8.0;
+        if (shortNotes > 2) noteSpacing -= 4.0;
+        if (shortNotes > 4) noteSpacing -= 2.0;
+        
+        // Special case for all eighth notes (like measure 4)
+        if (shortNotes == noteCount && noteCount >= 6) {
+          noteSpacing = (measureWidth - 50) / (noteCount + 0.5);
+        }
+      }
+
+      // Identify beam groups based on MusicXML beam information
+      final List<List<int>> beamGroups = [];
+      final Map<int, List<int>> beamGroupsByNumber = {}; // Group by beam number
+      
+      for (int i = 0; i < measure.notes.length; i++) {
+        final note = measure.notes[i];
+        
+        // Skip if note is a rest
+        if (note.isRest) continue;
+        
+        // Check for beam information
+        if (note.beamValue != null) {
+          final beamNumber = note.beamNumber ?? 1;
+          
+          // Start a new beam group if this is the beginning
+          if (note.beamValue == 'begin') {
+            if (!beamGroupsByNumber.containsKey(beamNumber)) {
+              beamGroupsByNumber[beamNumber] = [];
+            }
+            beamGroupsByNumber[beamNumber]!.add(i);
+          }
+          // Continue an existing beam group
+          else if (note.beamValue == 'continue') {
+            if (beamGroupsByNumber.containsKey(beamNumber)) {
+              beamGroupsByNumber[beamNumber]!.add(i);
+            }
+          }
+          // End a beam group
+          else if (note.beamValue == 'end') {
+            if (beamGroupsByNumber.containsKey(beamNumber)) {
+              beamGroupsByNumber[beamNumber]!.add(i);
+              
+              // Finalize the beam group if it has at least 2 notes
+              if (beamGroupsByNumber[beamNumber]!.length >= 2) {
+                beamGroups.add(List.from(beamGroupsByNumber[beamNumber]!));
+              }
+              beamGroupsByNumber.remove(beamNumber);
+            }
+          }
+        }
+      }
+      
+      // Fallback: If no beam info in MusicXML, use automatic grouping for consecutive eighth notes
+      if (beamGroups.isEmpty) {
+        List<int> currentGroup = [];
+        
+        for (int i = 0; i < measure.notes.length; i++) {
+          final note = measure.notes[i];
+          if ((note.type == 'eighth' || note.type == '16th') && !note.isRest) {
+            currentGroup.add(i);
+          } else {
+            if (currentGroup.length >= 2) {
+              beamGroups.add(List.from(currentGroup));
+            }
+            currentGroup = [];
+          }
+        }
+        
+        // Add the last group if it exists
+        if (currentGroup.length >= 2) {
+          beamGroups.add(List.from(currentGroup));
+        }
       }
 
       // Draw notes
       double noteX = currentX + 25.0;
-      for (final note in measure.notes) {
+      
+      // Adjust starting position for measures with many notes
+      if (measure.notes.length >= 6) {
+        noteX = currentX + 20.0; // Smaller initial margin for crowded measures
+      }
+      
+      final List<Map<String, dynamic>> notePositions = [];
+      
+      for (int i = 0; i < measure.notes.length; i++) {
+        final note = measure.notes[i];
         final noteY = _getNoteY(note, staffStartY);
         
-        // Draw ledger lines if needed
-        _drawLedgerLines(canvas, noteX, noteY, staffStartY, paint);
+        // Store position for beaming
+        notePositions.add({
+          'x': noteX,
+          'y': noteY,
+          'note': note,
+          'index': i,
+        });
+        
+        // Draw ledger lines if needed (skip for rests)
+        if (!note.isRest) {
+          _drawLedgerLines(canvas, noteX, noteY, staffStartY, paint);
+        }
         
         // Draw accidentals
         if (note.alter != null && note.alter != 0) {
-          _drawAccidental(canvas, noteX - 20, noteY, note.alter!, paint);
+          // Only show accidental if not covered by key signature
+          if (!_isAccidentalInKeySignature(note)) {
+            _drawAccidental(canvas, noteX - 20, noteY, note.alter!, paint);
+          }
+        } else if (note.alter == 0) {
+          // Show natural if the note is sharped/flatted in the key signature
+          if (_isAccidentalInKeySignature(note)) {
+            _drawAccidental(canvas, noteX - 20, noteY, 0, paint);
+          }
         }
         
         if (note.isRest) {
-          _drawRest(canvas, noteX, noteY, note, paint);
+          // For rests, ignore the noteY value - they have standardized positions
+          _drawRest(canvas, noteX, 0, note, paint); // The y value (0) will be ignored by _drawRest
         } else {
           // Draw note components in correct order
           _drawNoteHead(canvas, noteX, noteY, note, paint);
@@ -231,12 +462,41 @@ class MusicSheetPainter extends CustomPainter {
             _drawStem(canvas, noteX, noteY, note, paint);
           }
           
-          if (_hasFlag(note.type)) {
+          // Only draw flags for notes that aren't part of beam groups
+          bool isBeamed = false;
+          for (final group in beamGroups) {
+            if (group.contains(i)) {
+              isBeamed = true;
+              break;
+            }
+          }
+          
+          if (_hasFlag(note.type) && !isBeamed) {
             _drawFlag(canvas, noteX, noteY, note, paint);
           }
           
           if (note.hasDot) {
-            _drawDot(canvas, noteX + noteSize/2 + 6, noteY, paint);
+            // Check if the note is on a staff line
+            bool isOnStaffLine = false;
+            final staffTop = staffStartY;
+            final staffBottom = staffStartY + (staffSpacing * 4);
+            
+            // Notes on staff lines have Y positions that align with staff lines
+            for (int j = 0; j <= 4; j++) {
+              double staffLineY = staffStartY + (j * staffSpacing);
+              if ((noteY - staffLineY).abs() < 1.5) {
+                isOnStaffLine = true;
+                break;
+              }
+            }
+            
+            // Adjust dot position - move up if note is on a line
+            double dotY = noteY;
+            if (isOnStaffLine) {
+              dotY -= staffSpacing / 2; // Move dot up to the space above
+            }
+            
+            _drawDot(canvas, noteX + noteSize/2 - 2, dotY, paint);
           }
         }
         
@@ -247,8 +507,32 @@ class MusicSheetPainter extends CustomPainter {
         
         noteX += noteSpacing;
       }
+      
+      // Draw beams for eighth note groups
+      for (final group in beamGroups) {
+        _drawBeam(canvas, notePositions, group, paint);
+      }
 
-      currentX += measureWidth;
+      // Calculate final X position for next measure
+      // If last note would extend too close to or beyond the measure boundary,
+      // adjust the measure width
+      if (notePositions.isNotEmpty) {
+        final lastNoteX = notePositions.last['x'];
+        final minEndMargin = 30.0; // Minimum space after last note
+        
+        // Ensure the measure ends at least minEndMargin after the last note
+        double suggestedNextX = lastNoteX + minEndMargin;
+        double plannedNextX = currentX + measureWidth;
+        
+        // If needed, expand the measure to avoid crowding
+        if (suggestedNextX > plannedNextX) {
+          currentX = suggestedNextX;
+        } else {
+          currentX += measureWidth;
+        }
+      } else {
+        currentX += measureWidth;
+      }
     }
 
     // Final double barline
@@ -265,7 +549,7 @@ class MusicSheetPainter extends CustomPainter {
   }
 
   void _drawNote(Canvas canvas, double x, double startY, Note note, Paint paint) {
-    _drawLedgerLines(canvas, x, startY, 80.0, paint);
+    _drawLedgerLines(canvas, x, startY, staffStartY, paint);
 
     if (note.alter != null && note.alter != 0) {
       _drawAccidental(canvas, x - 20, startY, note.alter!, paint);
@@ -300,7 +584,7 @@ class MusicSheetPainter extends CustomPainter {
         text: text,
         style: TextStyle(
           fontFamily: 'Bravura',
-          fontSize: noteSize,
+          fontSize: noteSize * (note.type == 'whole' || note.type == 'half' ? 1.05 : 1.0),
           height: 1.0,
           color: Colors.black,
         ),
@@ -309,14 +593,31 @@ class MusicSheetPainter extends CustomPainter {
     );
     textPainter.layout();
     
-    // Center the notehead precisely on the staff line or space
-    final noteX = x - textPainter.width / 2;
+    // For quarter notes, check if stem should be down (p-shape) and adjust position
+    bool shouldAdjustForStem = false;
+    if (note.type == 'quarter') {
+      final middleLineY = staffStartY + (staffSpacing * 2);
+      final stemDown = note.stemDirection == 'down' || 
+                      (note.stemDirection != 'up' && y < middleLineY);
+      shouldAdjustForStem = stemDown;
+    }
+    
+    // Calculate position - center the notehead on the staff line or space
+    double noteX;
+    if (shouldAdjustForStem) {
+      // NOTE: NOTE HEAD POSITION - Adjust this value if you change the stem position
+      // Since the stem is now more to the left, we can use a more centered position for the notehead
+      // For p-shaped quarter notes
+      noteX = x - textPainter.width / 2; // Center the note head now that stem is left of center
+    } else {
+      noteX = x - textPainter.width / 2; // Default center positioning
+    }
     final noteY = y - textPainter.height / 2;
 
-    // For half and whole notes, ensure crisp edges
+    // For half and whole notes, ensure crisp edges with proper stroke width
     if (note.type == 'half' || note.type == 'whole') {
       paint.style = PaintingStyle.stroke;
-      paint.strokeWidth = lineWidth;
+      paint.strokeWidth = lineWidth * 1.2; // Slightly thicker for better visibility
     } else {
       paint.style = PaintingStyle.fill;
     }
@@ -333,76 +634,212 @@ class MusicSheetPainter extends CustomPainter {
   }
 
   void _drawStem(Canvas canvas, double x, double y, Note note, Paint paint) {
-    // Standard stem direction rules
+    // Only modify stem direction for quarter notes
+    // For other note types, use the explicit direction or calculate based on position
     final middleLineY = staffStartY + (staffSpacing * 2);
-    final stemUp = y >= middleLineY;
+    
+    bool stemUp;
+    if (note.stemDirection == 'up') {
+      stemUp = true;
+    } else if (note.stemDirection == 'down') {
+      stemUp = false;
+    } else if (note.type == 'quarter') {
+      // For quarter notes: above middle line = stem down, below = stem up
+      stemUp = y >= middleLineY;
+    } else {
+      // Default for other notes: use explicit direction from MusicXML or calculate
+      stemUp = note.stemDirection == 'up' || (note.stemDirection != 'down' && y >= middleLineY);
+    }
     
     final stemPaint = Paint()
       ..color = Colors.black
-      ..strokeWidth = lineWidth * 1.2  // Slightly thicker stem
-      ..style = PaintingStyle.stroke;
+      ..strokeWidth = lineWidth * 1.4
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    
+    double actualStemLength = stemLength * 0.65;
+    
+    if (y < staffStartY - staffSpacing * 1.5 || y > staffStartY + staffSpacing * 5.5) {
+      actualStemLength += staffSpacing * 0.5;
+    }
     
     if (stemUp) {
-      // Attach stem to right side of notehead
+      // Stem up - positioned on the right side of the note head
       canvas.drawLine(
-        Offset(x + noteSize/3.5, y - noteSize/8),  // Better stem attachment
-        Offset(x + noteSize/3.5, y - stemLength),
+        Offset(x + noteSize/9.0, y - noteSize/9),
+        Offset(x + noteSize/9.0, y - actualStemLength),
         stemPaint,
       );
     } else {
-      // Attach stem to left side of notehead
+      // Stem down - make sure it touches the right side of the note head
+      // Position varies based on note type
+      double stemX;
+      if (note.type == 'quarter') {
+        // For quarter notes (p-shape) - slighly to the left of center
+        stemX = x - noteSize/12.0;
+      } else if (note.type == 'half') {
+        // For half notes - position more to the right but not as far as before
+        stemX = x - noteSize/8.0;
+      } else {
+        // For other notes with stem down
+        stemX = x - noteSize/1.0;
+      }
+      
       canvas.drawLine(
-        Offset(x - noteSize/3.5, y + noteSize/8),  // Better stem attachment
-        Offset(x - noteSize/3.5, y + stemLength),
+        Offset(stemX, y + noteSize/9),
+        Offset(stemX, y + actualStemLength),
         stemPaint,
       );
     }
   }
 
   void _drawFlag(Canvas canvas, double x, double y, Note note, Paint paint) {
+    // Determine stem direction based on note position relative to the middle line
     final middleLineY = staffStartY + (staffSpacing * 2);
-    final stemUp = y >= middleLineY;
-    final text = stemUp ? 
-                (note.type == 'eighth' ? BravuraFont.flag8thUp : BravuraFont.flag16thUp) :
-                (note.type == 'eighth' ? BravuraFont.flag8thDown : BravuraFont.flag16thDown);
-
-    final textPainter = TextPainter(
-      text: TextSpan(
-        text: text,
-        style: TextStyle(
-          fontFamily: 'Bravura',
-          fontSize: noteSize * 1.1,  // Slightly larger flag for better visibility
-          height: 1.0,
-          color: Colors.black,
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-    );
-    textPainter.layout();
     
-    // Position flag at the end of the stem with better alignment
-    final xPos = stemUp ? 
-                x + noteSize/3.5 - textPainter.width/2 : 
-                x - noteSize/3.5 - textPainter.width/2;
-    final yPos = stemUp ? 
-                y - stemLength + noteSize/4 : 
-                y + stemLength - noteSize * 0.7;
-    textPainter.paint(canvas, Offset(xPos, yPos));
+    // Use the same stem direction logic as in _drawStem
+    bool stemUp;
+    if (note.stemDirection == 'up') {
+      stemUp = true;
+    } else if (note.stemDirection == 'down') {
+      stemUp = false;
+    } else if (note.type == 'quarter') {
+      // For quarter notes: above middle line = stem down, below = stem up
+      stemUp = y >= middleLineY;
+    } else {
+      // Default for other notes: use explicit direction from MusicXML or calculate
+      stemUp = note.stemDirection == 'up' || (note.stemDirection != 'down' && y >= middleLineY);
+    }
+    
+    // Get stem X position - must match _drawStem positioning
+    double stemX;
+    if (!stemUp && note.type == 'quarter') {
+      stemX = x - noteSize/12.0; // For quarter notes with stem down (p-shape)
+    } else if (!stemUp && note.type == 'half') {
+      stemX = x - noteSize/8.0; // For half notes with stem down
+    } else if (stemUp) {
+      stemX = x + noteSize/9.0; // For stem up
+    } else {
+      stemX = x - noteSize/1.0; // For other notes with stem down
+    }
+    
+    // Use the same stem length calculation as _drawStem
+    double actualStemLength = stemLength * 0.65;
+    if (y < staffStartY - staffSpacing * 1.5 || y > staffStartY + staffSpacing * 5.5) {
+      actualStemLength += staffSpacing * 0.5;
+    }
+
+    if (note.type == 'eighth') {
+      final flagPaint = Paint()
+        ..color = Colors.black
+        ..strokeWidth = lineWidth * 1.4
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round;
+
+      if (stemUp) {
+        // Starting point exactly at stem end
+        final startX = stemX;
+        final startY = y - actualStemLength;
+        
+        // Draw S-shaped flag starting right at stem end
+        final path = Path();
+        path.moveTo(startX, startY);
+        
+        // Adjusted curves to start right at stem end
+        path.quadraticBezierTo(
+          startX + noteSize * 0.10, startY + noteSize * 0.15,
+          startX + noteSize * 0.4, startY + noteSize * 0.32
+        );
+        path.quadraticBezierTo(
+          startX + noteSize * 0.5, startY + noteSize * 0.55,
+          startX + noteSize * 0.3, startY + noteSize * 0.7
+        );
+        
+        canvas.drawPath(path, flagPaint);
+      } else {
+        // Starting point exactly at stem end
+        final startX = stemX;
+        final startY = y + actualStemLength;
+        
+        // Draw inverted S-shaped flag starting right at stem end
+        final path = Path();
+        path.moveTo(startX, startY);
+        
+        // Adjusted curves to start right at stem end
+        path.quadraticBezierTo(
+          startX - noteSize * 0.4, startY - noteSize * 0.15,
+          startX - noteSize * 0.3, startY - noteSize * 0.35
+        );
+        path.quadraticBezierTo(
+          startX - noteSize * 0.5, startY - noteSize * 0.55,
+          startX - noteSize * 0.2, startY - noteSize * 0.7
+        );
+        
+        canvas.drawPath(path, flagPaint);
+      }
+    } else if (note.type == '16th') {
+      final text = stemUp ? BravuraFont.flag16thUp : BravuraFont.flag16thDown;
+
+      final textPainter = TextPainter(
+        text: TextSpan(
+          text: text,
+          style: TextStyle(
+            fontFamily: 'Bravura',
+            fontSize: noteSize * 1.2,
+            height: 1.0,
+            color: Colors.black,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      );
+      textPainter.layout();
+      
+      // Adjusted to connect perfectly with stem
+      final xPos = stemUp ? 
+                  stemX - textPainter.width/2 :
+                  stemX - textPainter.width/2;
+      final yPos = stemUp ? 
+                  y - actualStemLength :  // Start right at stem end
+                  y + actualStemLength - textPainter.height;  // Start right at stem end
+      
+      canvas.save();
+      canvas.translate(xPos + textPainter.width/2, yPos + textPainter.height/2);
+      canvas.rotate(stemUp ? 0.05 : -0.05);
+      canvas.translate(-(xPos + textPainter.width/2), -(yPos + textPainter.height/2));
+      
+      textPainter.paint(canvas, Offset(xPos, yPos));
+      canvas.restore();
+    }
   }
 
   void _drawRest(Canvas canvas, double x, double y, Note note, Paint paint) {
-    // Standard rest positions relative to the middle line
-    double restY = staffStartY + staffSpacing * 2; // Middle line
+    // Standardized rest positions - ignoring the y-value passed in
+    // Rests are always positioned on fixed positions of the staff
+    double restY = staffStartY + staffSpacing * 2; // Default: Middle line
+    double fontSize = noteSize * 0.95; // Base font size for rests
     
-    // Adjust rest position based on type
-    if (note.type == 'whole') {
-      restY = staffStartY + staffSpacing; // Fourth line from bottom
-    } else if (note.type == 'half') {
-      restY = staffStartY + staffSpacing * 1.5; // Third space from bottom
-    } else if (note.type == 'quarter') {
-      restY = staffStartY + staffSpacing * 2; // Middle line
-    } else if (note.type == 'eighth' || note.type == '16th') {
-      restY = staffStartY + staffSpacing * 2.5; // Second space from top
+    // Adjust rest position and size based on type
+    switch (note.type) {
+      case 'whole':
+        restY = staffStartY + staffSpacing; // Fourth line from bottom
+        fontSize *= 0.9; // Slightly smaller
+        break;
+      case 'half':
+        restY = staffStartY + staffSpacing * 1.5; // Third space from bottom
+        fontSize *= 0.9; // Slightly smaller
+        break;
+      case 'quarter':
+        restY = staffStartY + staffSpacing * 2; // Middle line
+        fontSize *= 1.1; // Slightly larger
+        break;
+      case 'eighth':
+        restY = staffStartY + staffSpacing * 2.5; // Third space from top
+        fontSize *= 1.0;
+        break;
+      case '16th':
+        restY = staffStartY + staffSpacing * 2.5; // Third space from top
+        fontSize *= 1.05; // Slightly larger for visibility
+        break;
     }
 
     final text = note.type == 'whole' ? BravuraFont.restWhole :
@@ -417,7 +854,7 @@ class MusicSheetPainter extends CustomPainter {
         text: text,
         style: TextStyle(
           fontFamily: 'Bravura',
-          fontSize: noteSize * 0.9,
+          fontSize: fontSize,
           height: 1.0,
           color: Colors.black,
         ),
@@ -426,12 +863,46 @@ class MusicSheetPainter extends CustomPainter {
     );
     textPainter.layout();
 
+    // Center the rest horizontally and position vertically
     final restX = x - textPainter.width / 2;
-    textPainter.paint(canvas, Offset(restX, restY - textPainter.height / 2));
+    final adjustedY = restY - textPainter.height / 2;
+    
+    // For whole and half rests, ensure they sit precisely on the line
+    if (note.type == 'whole' || note.type == 'half') {
+      paint.style = PaintingStyle.fill;
+      paint.strokeWidth = lineWidth;
+    }
+    
+    textPainter.paint(canvas, Offset(restX, adjustedY));
+    
+    // Draw augmentation dot if needed
+    if (note.hasDot) {
+      // Check if the rest is on a staff line
+      bool isOnStaffLine = false;
+      
+      // Rests on staff lines have Y positions that align with staff lines
+      for (int i = 0; i <= 4; i++) {
+        double staffLineY = staffStartY + (i * staffSpacing);
+        if ((restY - staffLineY).abs() < 1.5) {
+          isOnStaffLine = true;
+          break;
+        }
+      }
+      
+      // Adjust dot position - move up if rest is on a line
+      double dotY = restY;
+      if (isOnStaffLine) {
+        dotY -= staffSpacing / 2; // Move dot up to the space above
+      }
+      
+      _drawDot(canvas, restX + textPainter.width - 2, dotY, paint);
+    }
   }
 
   void _drawAccidental(Canvas canvas, double x, double y, int alter, Paint paint) {
-    final text = alter == 1 ? BravuraFont.accidentalSharp :
+    final text = alter == 2 ? BravuraFont.accidentalDoubleSharp :
+                alter == -2 ? BravuraFont.accidentalDoubleFlat :
+                alter == 1 ? BravuraFont.accidentalSharp :
                 alter == -1 ? BravuraFont.accidentalFlat :
                 BravuraFont.accidentalNatural;
 
@@ -440,7 +911,7 @@ class MusicSheetPainter extends CustomPainter {
         text: text,
         style: TextStyle(
           fontFamily: 'Bravura',
-          fontSize: noteSize * 0.8,
+          fontSize: noteSize * 0.85, // Slightly smaller than note
           height: 1.0,
           color: Colors.black,
         ),
@@ -449,24 +920,60 @@ class MusicSheetPainter extends CustomPainter {
     );
     textPainter.layout();
     
-    // Position accidental to the left of the notehead
-    final accX = x - textPainter.width - 2;
+    // Position accidental with proper spacing from note
+    final spacing = 1.0; // Reduced from 3 for tighter spacing between accidental and note
+    final accX = x - textPainter.width - spacing;
+    
+    // Calculate vertical position, with adjustments for different accidental types
     final accY = y - textPainter.height / 2;
-    textPainter.paint(canvas, Offset(accX, accY));
+    
+    // Calculate vertical offset based on accidental type and position
+    double verticalOffset = 0.0;
+    if (alter == -1) {
+      // For flats
+      verticalOffset = -1.0;
+    } else if (alter == 1) {
+      // For sharps
+      verticalOffset = -0.5;
+    } else if (alter == 2) {
+      // For double sharps - align with single sharp position
+      verticalOffset = -0.5;
+    } else if (alter == -2) {
+      // For double flats - align with single flat position
+      verticalOffset = -1.0;
+    }
+    
+    // Horizontal adjustment for better alignment
+    final horizontalOffset = alter == 1 || alter == 2 ? 1.0 : 0.0;
+    
+    canvas.save();
+    // Slight rotation for more natural appearance
+    canvas.translate(accX + textPainter.width/2 + horizontalOffset, accY + textPainter.height/2);
+    canvas.rotate(alter == 1 || alter == 2 ? 0.02 : -0.02);
+    canvas.translate(-(accX + textPainter.width/2 + horizontalOffset), -(accY + textPainter.height/2));
+    
+    textPainter.paint(canvas, Offset(accX + horizontalOffset, accY + verticalOffset));
+    canvas.restore();
   }
 
   void _drawDot(Canvas canvas, double x, double y, Paint paint) {
-    final dotPaint = Paint()
-      ..color = Colors.black
-      ..style = PaintingStyle.fill;
+    paint.style = PaintingStyle.fill;
     
-    // Position dot to the right of the notehead, aligned with spaces
-    final dotY = (y / staffSpacing).round() * staffSpacing;
+    // Draw main dot - position closer to the note
     canvas.drawCircle(
-      Offset(x + noteSize/2 + 4, dotY),
-      noteSize * 0.15,  // Smaller, more refined dot
-      dotPaint
+      Offset(x - 2, y), // Now using a negative offset to move it to the left
+      2.2, // Slightly larger dot
+      paint,
     );
+    
+    // For double dots in future implementation
+    if (false) { // Placeholder for future double-dot support
+      canvas.drawCircle(
+        Offset(x + 3, y), // Also adjusted for spacing from first dot
+        2.2,
+        paint,
+      );
+    }
   }
 
   bool _shouldSlurBeAbove(List<Note> notes) {
@@ -563,21 +1070,29 @@ class MusicSheetPainter extends CustomPainter {
     final staffBottom = startY + (staffSpacing * 4);
     paint.strokeWidth = lineWidth;
     
-    // Draw ledger lines above staff
+    // Draw ledger lines above staff, skipping the first one
     if (y < staffTop - staffSpacing/4) {
       var currentY = staffTop;
+      int ledgerCount = -1;
       while (currentY > y - staffSpacing/4) {
         currentY -= staffSpacing;
-        _drawLedgerLine(canvas, x, currentY, paint);
+        ledgerCount++;
+        if (ledgerCount > 1) { // Skip the first ledger line
+          _drawLedgerLine(canvas, x, currentY, paint);
+        }
       }
     }
     
-    // Draw ledger lines below staff
+    // Draw ledger lines below staff, skipping the first one
     if (y > staffBottom + staffSpacing/4) {
       var currentY = staffBottom;
+      int ledgerCount = -1;
       while (currentY < y + staffSpacing/4) {
         currentY += staffSpacing;
-        _drawLedgerLine(canvas, x, currentY, paint);
+        ledgerCount++;
+        if (ledgerCount > 1) { // Skip the first ledger line
+          _drawLedgerLine(canvas, x, currentY, paint);
+        }
       }
     }
 
@@ -620,6 +1135,202 @@ class MusicSheetPainter extends CustomPainter {
     // Each step is half a staff space
     // Moving up the staff means subtracting from the Y coordinate
     return middleC - (stepsFromMiddleC * staffSpacing / 2);
+  }
+
+  void _drawBeam(Canvas canvas, List<Map<String, dynamic>> notePositions, List<int> group, Paint paint) {
+    if (group.length < 2) return;
+    
+    // Get the note positions for the beam group
+    final firstNote = notePositions[group.first];
+    final lastNote = notePositions[group.last];
+    
+    // Get the first and last note objects
+    final firstNoteObj = firstNote['note'];
+    final lastNoteObj = lastNote['note'];
+    
+    // Determine if we need single or double beams (for eighth vs sixteenth)
+    final needsDoubleBeam = firstNoteObj.type == '16th' || lastNoteObj.type == '16th';
+    
+    // Calculate stem direction based on average note position and note stem directions
+    double sumY = 0;
+    bool forcedStemDirection = false;
+    String stemDirection = '';
+    
+    // Check if any notes have an explicit stem direction
+    for (final idx in group) {
+      final notePos = notePositions[idx];
+      final note = notePos['note'];
+      sumY += notePos['y'];
+      
+      if (note.stemDirection == 'up' || note.stemDirection == 'down') {
+        forcedStemDirection = true;
+        stemDirection = note.stemDirection;
+        break;
+      }
+    }
+    
+    double avgY = sumY / group.length;
+    final middleLineY = staffStartY + (staffSpacing * 2);
+    
+    // Determine stem direction - respect explicit direction or calculate based on position
+    bool stemUp;
+    if (forcedStemDirection) {
+      stemUp = stemDirection == 'up';
+    } else {
+      // Notes above the middle line have stems down, below have stems up
+      // If avgY < middleLineY, notes are above the middle line, so stem down (false)
+      // If avgY >= middleLineY, notes are below or on the middle line, so stem up (true)
+      stemUp = avgY >= middleLineY;
+    }
+    
+    // Calculate beam start and end coordinates
+    double actualStemLength = stemLength * 0.65;
+    
+    double startX, startY, endX, endY;
+    
+    // For quarter notes with stem down (p-shape), adjust stem X position
+    final firstIsQuarter = firstNoteObj.type == 'quarter';
+    final lastIsQuarter = lastNoteObj.type == 'quarter';
+    
+    if (stemUp) {
+      startX = firstNote['x'] + noteSize/9.0;
+      startY = firstNote['y'] - actualStemLength;
+      endX = lastNote['x'] + noteSize/9.0;
+      endY = lastNote['y'] - actualStemLength;
+    } else {
+      // For stems pointing down, adjust for quarter notes
+      startX = !stemUp && firstIsQuarter ? 
+               firstNote['x'] - noteSize/12.0 : // Quarter notes - adjusted to the right
+               firstNote['x'] - noteSize/1.0;  // Other notes
+      
+      startY = firstNote['y'] + actualStemLength;
+      
+      endX = !stemUp && lastIsQuarter ? 
+             lastNote['x'] - noteSize/12.0 : // Quarter notes - adjusted to the right
+             lastNote['x'] - noteSize/1.0;  // Other notes
+             
+      endY = lastNote['y'] + actualStemLength;
+    }
+    
+    // Adjust beam angle based on note spacing and pitch difference
+    final pitchDiff = lastNote['y'] - firstNote['y'];
+    final maxSlope = 0.2; // Maximum allowable slope
+    
+    // Slope calculation with limits
+    double slope = pitchDiff / (endX - startX);
+    slope = slope.clamp(-maxSlope, maxSlope);
+    
+    // Recalculate end Y to adjust slope
+    endY = startY + slope * (endX - startX);
+    
+    // Draw the beam
+    final beamPaint = Paint()
+      ..color = Colors.black
+      ..strokeWidth = lineWidth * 2.2 // Thicker for beam
+      ..style = PaintingStyle.fill
+      ..strokeCap = StrokeCap.butt;
+    
+    // Draw the main beam
+    final beamPath = Path();
+    final beamThickness = 3.5;
+    
+    if (stemUp) {
+      beamPath.moveTo(startX, startY);
+      beamPath.lineTo(startX, startY - beamThickness);
+      beamPath.lineTo(endX, endY - beamThickness);
+      beamPath.lineTo(endX, endY);
+    } else {
+      beamPath.moveTo(startX, startY);
+      beamPath.lineTo(startX, startY + beamThickness);
+      beamPath.lineTo(endX, endY + beamThickness);
+      beamPath.lineTo(endX, endY);
+    }
+    
+    beamPath.close();
+    canvas.drawPath(beamPath, beamPaint);
+    
+    // Draw second beam for 16th notes if needed
+    if (needsDoubleBeam) {
+      final secondBeamPath = Path();
+      final beamSpacing = 6.0; // Space between beams
+      
+      if (stemUp) {
+        secondBeamPath.moveTo(startX, startY - beamSpacing);
+        secondBeamPath.lineTo(startX, startY - beamSpacing - beamThickness);
+        secondBeamPath.lineTo(endX, endY - beamSpacing - beamThickness);
+        secondBeamPath.lineTo(endX, endY - beamSpacing);
+      } else {
+        secondBeamPath.moveTo(startX, startY + beamSpacing);
+        secondBeamPath.lineTo(startX, startY + beamSpacing + beamThickness);
+        secondBeamPath.lineTo(endX, endY + beamSpacing + beamThickness);
+        secondBeamPath.lineTo(endX, endY + beamSpacing);
+      }
+      
+      secondBeamPath.close();
+      canvas.drawPath(secondBeamPath, beamPaint);
+    }
+    
+    // Draw stems for each note
+    for (final idx in group) {
+      final notePos = notePositions[idx];
+      final noteX = notePos['x'];
+      final noteY = notePos['y'];
+      
+      final note = notePos['note'];
+      final isQuarterNote = note.type == 'quarter';
+      
+      // Calculate interpolated stem height based on position within the group
+      final progress = (noteX - startX) / (endX - startX);
+      final stemY = startY + progress * (endY - startY);
+      
+      final stemPaint = Paint()
+        ..color = Colors.black
+        ..strokeWidth = lineWidth * 1.4
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round;
+      
+      // Calculate stem X position consistent with _drawStem
+      double stemX;
+      if (!stemUp && isQuarterNote) {
+        // For quarter notes with stem down (p-shape)
+        stemX = noteX - noteSize/12.0; 
+      } else if (!stemUp && note.type == 'half') {
+        // For half notes with stem down - more to the right than eighth notes but less than quarters
+        stemX = noteX - noteSize/8.0;
+      } else if (stemUp) {
+        stemX = noteX + noteSize/9.0; // For stem up
+      } else {
+        stemX = noteX - noteSize/1.0; // For other notes with stem down
+      }
+      
+      if (stemUp) {
+        canvas.drawLine(
+          Offset(stemX, noteY - noteSize/9),
+          Offset(stemX, stemY),
+          stemPaint,
+        );
+      } else {
+        canvas.drawLine(
+          Offset(stemX, noteY + noteSize/9),
+          Offset(stemX, stemY),
+          stemPaint,
+        );
+      }
+    }
+  }
+
+  // Returns true if the note's step is sharped/flatted in the key signature
+  bool _isAccidentalInKeySignature(Note note) {
+    // Only handle sharps for now (positive keySharps)
+    if (score.keySharps > 0) {
+      // Order of sharps in key signature for treble clef
+      const sharpOrder = ['F', 'C', 'G', 'D', 'A', 'E', 'B'];
+      for (int i = 0; i < score.keySharps && i < sharpOrder.length; i++) {
+        if (note.step == sharpOrder[i]) return true;
+      }
+    }
+    // TODO: Add flats support if needed
+    return false;
   }
 
   @override

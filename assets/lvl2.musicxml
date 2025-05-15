@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 4.0 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">
 <score-partwise version="4.0">
+  <!-- Identification and defaults sections remain unchanged -->
   <identification>
     <encoding>
       <software>MuseScore 4.5.2</software>
@@ -158,15 +159,16 @@
         <pitch>
           <step>A</step>
           <octave>4</octave>
-          </pitch>
-        <duration>2</duration>
+        </pitch>
+        <duration>3</duration>
         <voice>1</voice>
         <type>half</type>
+        <dot/> <!-- Added dot to first half note -->
         <stem>up</stem>
         <notations>
           <slur type="stop" number="1"/>
-          </notations>
-        </note>
+        </notations>
+      </note>
       <note default-x="103.27" default-y="-25">
         <pitch>
           <step>A</step>
@@ -224,12 +226,21 @@
         </note>
       </measure>
     <measure number="4" width="165.25">
-      <note default-x="13" default-y="-10">
-        <rest/>
-        <duration>2</duration>
+      <!-- Removed the rest and simplified to just the dotted half note -->
+      <note default-x="13" default-y="-20">
+        <pitch>
+          <step>B</step>
+          <octave>4</octave>
+        </pitch>
+        <duration>3</duration>
         <voice>1</voice>
         <type>half</type>
-        </note>
+        <dot/>
+        <stem>down</stem>
+        <notations>
+          <slur type="stop" number="1"/>
+        </notations>
+      </note>
       <note default-x="103.27" default-y="-15">
         <pitch>
           <step>C</step>
@@ -241,23 +252,6 @@
         <stem>down</stem>
         <notations>
           <slur type="start" number="2"/>
-          </notations>
-        </note>
-      <backup>
-        <duration>3</duration>
-        </backup>
-      <note default-x="13" default-y="-20">
-        <pitch>
-          <step>B</step>
-          <octave>4</octave>
-          </pitch>
-        <duration>3</duration>
-        <voice>2</voice>
-        <type>half</type>
-        <dot default-x="30.99" default-y="-25"/>
-        <stem>down</stem>
-        <notations>
-          <slur type="stop" number="1"/>
           </notations>
         </note>
       </measure>
@@ -382,14 +376,15 @@
           <step>G</step>
           <octave>4</octave>
           </pitch>
-        <duration>2</duration>
+        <duration>3</duration>
         <voice>1</voice>
         <type>half</type>
+        <dot/> <!-- Added dot to last half note -->
         <stem>up</stem>
         <notations>
           <slur type="stop" number="2"/>
-          </notations>
-        </note>
+        </notations>
+      </note>
       <barline location="right">
         <bar-style>light-heavy</bar-style>
         </barline>

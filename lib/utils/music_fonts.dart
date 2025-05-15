@@ -28,6 +28,8 @@ class BravuraFont {
   static const String accidentalSharp = '\uE262';     // Sharp
   static const String accidentalFlat = '\uE260';      // Flat
   static const String accidentalNatural = '\uE261';   // Natural
+  static const String accidentalDoubleSharp = '\uE263'; // Double sharp
+  static const String accidentalDoubleFlat = '\uE264';  // Double flat
   
   // Time signatures
   static const String timeSig0 = '\uE080';            // Time signature 0
