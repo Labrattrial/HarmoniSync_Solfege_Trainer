@@ -9,11 +9,13 @@ class MusicSheet extends StatefulWidget {
   final double currentTime; // Current playback time in seconds
   final int currentNoteIndex;
   final double bpm; // Add BPM parameter
+  final bool isCorrect; // Add isCorrect parameter
 
   const MusicSheet({
     super.key,
     required this.score,
     required this.bpm, // Make BPM required
+    required this.isCorrect, // Make isCorrect required
     this.isPlaying = false,
     this.currentTime = 0.0,
     this.currentNoteIndex = 0,
@@ -27,6 +29,7 @@ class _MusicSheetState extends State<MusicSheet> with SingleTickerProviderStateM
   late ScrollController _scrollController;
   late AnimationController _highlightController;
   late Animation<double> _highlightAnimation;
+  late Animation<Color?> _glowColorAnimation;
   double _currentX = 0.0;
 
   @override
@@ -40,6 +43,10 @@ class _MusicSheetState extends State<MusicSheet> with SingleTickerProviderStateM
     _highlightAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(parent: _highlightController, curve: Curves.easeInOut),
     );
+    _glowColorAnimation = ColorTween(
+      begin: Colors.transparent,
+      end: widget.isCorrect ? Colors.green.withOpacity(0.5) : Colors.red.withOpacity(0.5),
+    ).animate(_highlightController);
   }
 
   @override
@@ -52,8 +59,15 @@ class _MusicSheetState extends State<MusicSheet> with SingleTickerProviderStateM
   @override
   void didUpdateWidget(MusicSheet oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.currentTime != oldWidget.currentTime || widget.bpm != oldWidget.bpm) {
+    if (widget.currentTime != oldWidget.currentTime || 
+        widget.bpm != oldWidget.bpm ||
+        widget.isCorrect != oldWidget.isCorrect) {
       _updateScrollPosition();
+      // Update glow color when correctness changes
+      _glowColorAnimation = ColorTween(
+        begin: Colors.transparent,
+        end: widget.isCorrect ? Colors.green.withOpacity(0.5) : Colors.red.withOpacity(0.5),
+      ).animate(_highlightController);
     }
   }
 
@@ -108,6 +122,7 @@ class _MusicSheetState extends State<MusicSheet> with SingleTickerProviderStateM
             currentNoteIndex: widget.currentNoteIndex,
             currentTime: widget.currentTime,
             bpm: widget.bpm,
+            isCorrect: widget.isCorrect,
           ),
           size: Size(totalWidth, 300),
         ),
@@ -123,6 +138,7 @@ class MusicSheetPainter extends CustomPainter {
   final int currentNoteIndex;
   final double currentTime;  // Add currentTime parameter
   final double bpm;  // Add BPM parameter
+  final bool isCorrect; // Add isCorrect parameter
   // Standard music engraving measurements
   static const double staffSpacing = 10.0;   // Space between staff lines
   static const double lineWidth = 1.2;      // Staff line thickness
@@ -144,6 +160,7 @@ class MusicSheetPainter extends CustomPainter {
     required this.currentNoteIndex,
     required this.currentTime,  // Add currentTime to constructor
     required this.bpm,  // Add BPM to constructor
+    required this.isCorrect, // Add isCorrect to constructor
   });
 
   // Map to store slur start positions by slur number
@@ -170,7 +187,7 @@ class MusicSheetPainter extends CustomPainter {
     // Draw time signature
     _drawTimeSignature(canvas, size, paint);
 
-    // Draw measures and notes
+    // Draw measures and notes with glow effect
     _drawMeasures(canvas, size, paint);
   }
 
@@ -714,15 +731,26 @@ class MusicSheetPainter extends CustomPainter {
 
     // Draw highlight if this is the current note
     if (isPlaying && isCurrentNote && !note.isRest) {
+      // Draw the highlight circle
       final highlightPaint = Paint()
-        ..color = Colors.blue.withOpacity(0.3)
+        ..color = isCorrect ? Colors.green.withOpacity(0.3) : Colors.red.withOpacity(0.3)
         ..style = PaintingStyle.fill;
       
-      // Draw a circular highlight around the note
       canvas.drawCircle(
         Offset(noteX + textPainter.width/2, noteY + textPainter.height/2),
         noteSize * 0.8,
         highlightPaint,
+      );
+
+      // Add a glow effect
+      final glowPaint = Paint()
+        ..color = isCorrect ? Colors.green.withOpacity(0.3) : Colors.red.withOpacity(0.3)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8.0);
+      
+      canvas.drawCircle(
+        Offset(noteX + textPainter.width/2, noteY + textPainter.height/2),
+        noteSize * 1.5,
+        glowPaint,
       );
     }
 

@@ -39,6 +39,7 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
   int _currentNoteIndex = 0;
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
+  late Animation<Color?> _glowColorAnimation;
   late FlutterSoundRecorder _recorder;
   String? _currentDetectedNote;
   String? _expectedNote;
@@ -46,6 +47,7 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
   StreamSubscription? _audioStreamSubscription;
   StreamController<Uint8List>? _audioStreamController;
   double _bpm = 120.0; // Default BPM
+  final ScrollController _noteScrollController = ScrollController();
 
   @override
   void initState() {
@@ -64,6 +66,11 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
     _pulseAnimation = Tween<double>(begin: 1.0, end: 1.2).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
+
+    _glowColorAnimation = ColorTween(
+      begin: Colors.transparent,
+      end: Colors.green.withOpacity(0.5),
+    ).animate(_pulseController);
 
     _recorder = FlutterSoundRecorder();
     _initializeRecorder();
@@ -102,6 +109,13 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
               _currentDetectedNote = note;
               if (_expectedNote != null) {
                 _isCorrect = note == _expectedNote;
+                // Update glow color based on correctness
+                _glowColorAnimation = ColorTween(
+                  begin: Colors.transparent,
+                  end: _isCorrect 
+                    ? Colors.green.withOpacity(0.5)
+                    : Colors.red.withOpacity(0.5),
+                ).animate(_pulseController);
               }
             });
           }
@@ -134,6 +148,7 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
     _audioStreamController?.close();
     _pulseController.dispose();
     _recorder.closeRecorder();
+    _noteScrollController.dispose();
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
       DeviceOrientation.landscapeLeft,
@@ -398,11 +413,33 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
             const double secondsPerMinute = 60.0;
             final double noteDuration = secondsPerMinute / _bpm;
             
-            // Update current note index based on dynamic note duration
-            _currentNoteIndex = (_currentTime / noteDuration).floor();
+            // Calculate total beats up to current time
+            final double currentBeats = _currentTime / noteDuration;
             
-            // Update expected note
-            _updateExpectedNote(score);
+            // Find the current note based on beats
+            double totalBeats = 0.0;
+            int newNoteIndex = 0;
+            bool foundNote = false;
+            
+            for (final measure in score.measures) {
+              for (final note in measure.notes) {
+                if (!note.isRest) {
+                  if (currentBeats >= totalBeats && currentBeats < totalBeats + _getNoteDuration(note)) {
+                    foundNote = true;
+                    break;
+                  }
+                  newNoteIndex++;
+                }
+                totalBeats += _getNoteDuration(note);
+              }
+              if (foundNote) break;
+            }
+            
+            // Update current note index if it changed
+            if (newNoteIndex != _currentNoteIndex) {
+              _currentNoteIndex = newNoteIndex;
+              _updateExpectedNote(score);
+            }
             
             // Stop if we've reached the end (last measure position + extra time)
             if (_currentTime >= _lastMeasurePosition + 10.0) {
@@ -417,6 +454,40 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
     });
   }
 
+  // Helper method to get note duration in beats
+  double _getNoteDuration(Note note) {
+    switch (note.type) {
+      case 'whole':
+        return 4.0;
+      case 'half':
+        return 2.0;
+      case 'quarter':
+        return 1.0;
+      case 'eighth':
+        return 0.5;
+      case '16th':
+        return 0.25;
+      default:
+        return 1.0; // Default to quarter note duration
+    }
+  }
+
+  void _scrollToCurrentNote() {
+    if (!_noteScrollController.hasClients) return;
+    
+    // Calculate the position to scroll to
+    final itemWidth = 100.0; // Approximate width of each note item including padding
+    final screenWidth = MediaQuery.of(context).size.width;
+    final targetPosition = _currentNoteIndex * itemWidth - (screenWidth / 2) + (itemWidth / 2);
+    
+    // Animate to the target position
+    _noteScrollController.animateTo(
+      targetPosition.clamp(0.0, _noteScrollController.position.maxScrollExtent),
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+    );
+  }
+
   void _updateExpectedNote(Score score) {
     // Find the current note in the score
     int totalNotes = 0;
@@ -427,9 +498,12 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
             _expectedNote = "${note.step}${note.octave}";
             _isCorrect = false;
           });
+          _scrollToCurrentNote(); // Scroll to keep current note visible
           return;
         }
-        totalNotes++;
+        if (!note.isRest) {
+          totalNotes++;
+        }
       }
     }
     setState(() {
@@ -484,11 +558,33 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
             const double secondsPerMinute = 60.0;
             final double noteDuration = secondsPerMinute / _bpm;
             
-            // Update current note index based on dynamic note duration
-            _currentNoteIndex = (_currentTime / noteDuration).floor();
+            // Calculate total beats up to current time
+            final double currentBeats = _currentTime / noteDuration;
             
-            // Update expected note
-            _updateExpectedNote(score);
+            // Find the current note based on beats
+            double totalBeats = 0.0;
+            int newNoteIndex = 0;
+            bool foundNote = false;
+            
+            for (final measure in score.measures) {
+              for (final note in measure.notes) {
+                if (!note.isRest) {
+                  if (currentBeats >= totalBeats && currentBeats < totalBeats + _getNoteDuration(note)) {
+                    foundNote = true;
+                    break;
+                  }
+                  newNoteIndex++;
+                }
+                totalBeats += _getNoteDuration(note);
+              }
+              if (foundNote) break;
+            }
+            
+            // Update current note index if it changed
+            if (newNoteIndex != _currentNoteIndex) {
+              _currentNoteIndex = newNoteIndex;
+              _updateExpectedNote(score);
+            }
             
             // Stop if we've reached the end (last measure position + extra time)
             if (_currentTime >= _lastMeasurePosition + 10.0) {
@@ -522,18 +618,6 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
       _expectedNote = null;
       _isCorrect = false;
     });
-  }
-
-  // Calculate duration for a measure based on the score's time signature and current BPM
-  double _calculateMeasureDuration(Score score) {
-    const double secondsPerMinute = 60.0;
-    
-    // Get time signature from the score
-    final beats = score.beats;
-    final beatType = score.beatType;
-    
-    // Calculate duration in seconds based on current BPM
-    return (beats * secondsPerMinute) / _bpm;
   }
 
   @override
@@ -597,29 +681,6 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
                     color: Colors.white,
                     fontSize: 72,
                     fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ),
-          if (_isPlaying && _currentDetectedNote != null)
-            Positioned(
-              bottom: 100,
-              left: 0,
-              right: 0,
-              child: Center(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: _isCorrect ? Colors.green.withOpacity(0.8) : Colors.red.withOpacity(0.8),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    'Detected: $_currentDetectedNote (Expected: $_expectedNote)',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
                   ),
                 ),
               ),
@@ -713,10 +774,11 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
                           alignment: const Alignment(-0.8, 0.0),
                           child: MusicSheet(
                             score: score,
-                            bpm: _bpm,
                             isPlaying: _isPlaying,
                             currentTime: _currentTime,
                             currentNoteIndex: _currentNoteIndex,
+                            bpm: _bpm,
+                            isCorrect: _isCorrect,
                           ),
                         ),
                       ),
@@ -833,14 +895,18 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
       }
     }
     return ListView.separated(
+      controller: _noteScrollController,
       scrollDirection: Axis.horizontal,
       itemCount: notes.length,
       padding: const EdgeInsets.symmetric(horizontal: 18),
       separatorBuilder: (context, idx) => const SizedBox(width: 12),
       itemBuilder: (context, idx) {
+        final isCurrentNote = idx == _currentNoteIndex;
         return Container(
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: isCurrentNote ? 
+              (_isCorrect ? Colors.green.withOpacity(0.8) : Colors.red.withOpacity(0.8)) : 
+              Colors.white,
             borderRadius: BorderRadius.circular(12),
             boxShadow: [
               BoxShadow(
@@ -853,8 +919,8 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
           child: Text(
             notes[idx],
-            style: const TextStyle(
-              color: Colors.black,
+            style: TextStyle(
+              color: isCurrentNote ? Colors.white : Colors.black,
               fontWeight: FontWeight.bold,
               fontSize: 16,
               letterSpacing: 1.1,
@@ -863,5 +929,17 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
         );
       },
     );
+  }
+
+  // Calculate duration for a measure based on the score's time signature and current BPM
+  double _calculateMeasureDuration(Score score) {
+    const double secondsPerMinute = 60.0;
+    
+    // Get time signature from the score
+    final beats = score.beats;
+    final beatType = score.beatType;
+    
+    // Calculate duration in seconds based on current BPM
+    return (beats * secondsPerMinute) / _bpm;
   }
 } 
