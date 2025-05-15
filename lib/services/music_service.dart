@@ -272,17 +272,17 @@ class MusicService {
   }
 
   static List<String> getAvailableLevels() {
-    return ['lvl1', 'lvl2', 'lvl3'];
+    return ['1', '2', '3'];
   }
 
   static String getLevelTitle(String level) {
     switch (level) {
-      case 'lvl1':
-        return 'Basic Scale';
-      case 'lvl2':
-        return 'Intermediate Melody';
-      case 'lvl3':
-        return 'Advanced Exercise';
+      case '1':
+        return 'Level 1 Exercise';
+      case '2':
+        return 'Level 2 Exercise';
+      case '3':
+        return 'Level 3 Exercise';
       default:
         return 'Unknown Level';
     }

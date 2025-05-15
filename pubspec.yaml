@@ -91,9 +91,9 @@ flutter:
   # see https://flutter.dev/to/font-from-package
 
   assets:
-    - assets/lvl1.musicxml
-    - assets/lvl2.musicxml
-    - assets/lvl3.musicxml
+    - assets/1.musicxml
+    - assets/2.musicxml
+    - assets/3.musicxml
 
   fonts:
     - family: Bravura

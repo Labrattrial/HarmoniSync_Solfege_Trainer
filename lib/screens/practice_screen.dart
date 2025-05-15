@@ -19,26 +19,38 @@ class PracticeScreen extends StatelessWidget {
           children: [
             // Easy Section
             SectionHeader(title: 'Easy'),
-            PracticeItem(
-              title: MusicService.getLevelTitle('lvl1'),
-              level: 'lvl1',
+            ExerciseCard(
+              title: MusicService.getLevelTitle('1'),
+              level: '1',
+              onTap: () => _navigateToExercise(context, '1'),
             ),
 
             // Medium Section
             SectionHeader(title: 'Medium'),
-            PracticeItem(
-              title: MusicService.getLevelTitle('lvl2'),
-              level: 'lvl2',
+            ExerciseCard(
+              title: MusicService.getLevelTitle('2'),
+              level: '2',
+              onTap: () => _navigateToExercise(context, '2'),
             ),
 
             // Hard Section
             SectionHeader(title: 'Hard'),
-            PracticeItem(
-              title: MusicService.getLevelTitle('lvl3'),
-              level: 'lvl3',
+            ExerciseCard(
+              title: MusicService.getLevelTitle('3'),
+              level: '3',
+              onTap: () => _navigateToExercise(context, '3'),
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _navigateToExercise(BuildContext context, String level) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ExerciseScreen(level: level),
       ),
     );
   }
@@ -64,14 +76,16 @@ class SectionHeader extends StatelessWidget {
   }
 }
 
-class PracticeItem extends StatelessWidget {
+class ExerciseCard extends StatelessWidget {
   final String title;
   final String level;
+  final VoidCallback onTap;
 
-  const PracticeItem({
+  const ExerciseCard({
     super.key, 
     required this.title,
     required this.level,
+    required this.onTap,
   });
 
   @override
@@ -88,14 +102,7 @@ class PracticeItem extends StatelessWidget {
           ),
         ),
         trailing: Icon(Icons.arrow_forward_ios, color: Colors.blueAccent),
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => ExerciseScreen(level: level),
-            ),
-          );
-        },
+        onTap: onTap,
       ),
     );
   }
