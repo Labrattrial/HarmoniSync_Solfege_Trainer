@@ -21,8 +21,16 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
   bool _isLoading = true;
   String? _error;
   bool _isPlaying = false;
+  bool _isPaused = false;
   int _countdown = 3;
+  bool _showCountdown = false;
   Timer? _countdownTimer;
+  Timer? _playbackTimer;
+  double _currentTime = 0.0;
+  double _totalDuration = 0.0;
+  bool _reachedEnd = false;
+  double _lastMeasurePosition = 1;
+  int _currentNoteIndex = 0;
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
 
@@ -48,10 +56,10 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
   @override
   void dispose() {
     _countdownTimer?.cancel();
+    _playbackTimer?.cancel();
     _pulseController.dispose();
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
-      DeviceOrientation.portraitDown,
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
@@ -79,9 +87,16 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
   }
 
   void _startCountdown() {
+    // Cancel any existing timers
+    _playbackTimer?.cancel();
+    _countdownTimer?.cancel();
+    
     setState(() {
       _countdown = 3;
-      _isPlaying = true;
+      _isPlaying = false;
+      _isPaused = false;
+      _currentTime = 0.0;
+      _showCountdown = true;
     });
 
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
@@ -89,6 +104,8 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
         if (_countdown > 1) {
           _countdown--;
         } else {
+          _countdown = 0;
+          _showCountdown = false;
           _countdownTimer?.cancel();
           _startExercise();
         }
@@ -97,10 +114,117 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
   }
 
   void _startExercise() {
-    // TODO: Implement actual exercise start logic
+    // Cancel any existing timers
+    _playbackTimer?.cancel();
+    
     setState(() {
       _isPlaying = true;
+      _isPaused = false;
+      _reachedEnd = false;
+      _currentTime = 0.0;  // Reset to start at the first note
+      _currentNoteIndex = 0; // Reset to first note
     });
+
+    // Get the score from the future
+    _scoreFuture.then((score) {
+      // Calculate beat duration based on tempo (default 120 BPM)
+      const double tempo = 120.0; // beats per minute
+      const double secondsPerMinute = 60.0;
+      final double beatDuration = secondsPerMinute / tempo; // duration of one beat in seconds
+      
+      // Start playback timer
+      _playbackTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
+        if (mounted) {
+          setState(() {
+            if (!_reachedEnd) {
+              _currentTime += 0.05; // Increment by 50ms
+              
+              // Update current note index based on beat duration
+              _currentNoteIndex = (_currentTime / beatDuration).floor();
+              
+              // Stop if we've reached the end (last measure position + extra time)
+              if (_currentTime >= _lastMeasurePosition + 10.0) {
+                _reachedEnd = true;
+                _isPlaying = false;
+                _playbackTimer?.cancel();
+              }
+            }
+          });
+        } else {
+          timer.cancel();
+        }
+      });
+    });
+  }
+
+  void _pauseExercise() {
+    // Cancel the playback timer
+    _playbackTimer?.cancel();
+    _playbackTimer = null;
+    
+    setState(() {
+      _isPlaying = false;
+      _isPaused = true;
+    });
+  }
+
+  void _resumeExercise() {
+    // Ensure no existing timer is running
+    _playbackTimer?.cancel();
+    
+    setState(() {
+      _isPlaying = true;
+      _isPaused = false;
+    });
+
+    _playbackTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
+      if (mounted) {
+        setState(() {
+          if (!_reachedEnd) {
+            _currentTime += 0.05;
+            
+            // Stop if we've reached the end (last measure position + extra time)
+            if (_currentTime >= _lastMeasurePosition + 10.0) {
+              _reachedEnd = true;
+              _isPlaying = false;
+              _playbackTimer?.cancel();
+            }
+          }
+        });
+      } else {
+        timer.cancel();
+      }
+    });
+  }
+
+  void _stopExercise() {
+    // Cancel all timers
+    _playbackTimer?.cancel();
+    _playbackTimer = null;
+    _countdownTimer?.cancel();
+    
+    setState(() {
+      _isPlaying = false;
+      _isPaused = false;
+      _currentTime = 0.0;  // Reset to start at the first note
+      _showCountdown = false;
+      _reachedEnd = false;
+    });
+  }
+
+  // Calculate duration for a measure based on the score's time signature
+  double _calculateMeasureDuration(Score score) {
+    // Default tempo is 120 BPM (beats per minute)
+    const double defaultTempo = 120.0;
+    const double secondsPerMinute = 60.0;
+    
+    // Get time signature from the score
+    final beats = score.beats;
+    final beatType = score.beatType;
+    
+    // Calculate duration in seconds
+    // For 4/4 time, one measure = 4 beats at 120 BPM = 2 seconds
+    return (beats * secondsPerMinute) / defaultTempo;
   }
 
   @override
@@ -150,6 +274,24 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
               ),
             ),
           ),
+          if (_showCountdown && _countdown > 0)
+            Center(
+              child: Container(
+                padding: const EdgeInsets.all(32),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.7),
+                  shape: BoxShape.circle,
+                ),
+                child: Text(
+                  _countdown.toString(),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 72,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -202,6 +344,12 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
         }
 
         final score = snapshot.data!;
+        
+        // Calculate total duration based on the score's time signature
+        final measureDuration = _calculateMeasureDuration(score);
+        _lastMeasurePosition = score.measures.length * measureDuration;
+        _totalDuration = _lastMeasurePosition + 10.0;  // Add 10 seconds after the last measure
+
         return SafeArea(
           child: LayoutBuilder(
             builder: (context, constraints) {
@@ -215,7 +363,7 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
                     child: Padding(
                       padding: const EdgeInsets.only(top: 24, left: 24, right: 24, bottom: 12),
                       child: Container(
-                        alignment: Alignment.center,
+                        alignment: Alignment.centerLeft,
                         decoration: BoxDecoration(
                           color: Colors.white,
                           borderRadius: BorderRadius.circular(18),
@@ -228,10 +376,15 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
                             ),
                           ],
                         ),
-                        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 10),
+                        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 0),
                         child: Align(
-                          alignment: Alignment.center,
-                          child: MusicSheet(score: score),
+                          alignment: const Alignment(-0.8, 0.0),
+                          child: MusicSheet(
+                            score: score,
+                            isPlaying: _isPlaying,
+                            currentTime: _currentTime,
+                            currentNoteIndex: _currentNoteIndex,
+                          ),
                         ),
                       ),
                     ),
@@ -286,16 +439,26 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
                             icon: const Icon(Icons.replay, size: 28, color: Colors.white),
                             tooltip: 'Replay',
                             onPressed: () {
-                              // TODO: Implement replay
+                              _stopExercise();
+                              _startCountdown();
                             },
                           ),
                           IconButton(
-                            icon: Icon(_isPlaying ? Icons.pause : Icons.play_arrow, size: 34, color: Colors.white),
-                            tooltip: _isPlaying ? 'Pause' : 'Start',
+                            icon: Icon(
+                              _isPlaying ? Icons.pause : 
+                              _isPaused ? Icons.play_arrow : 
+                              Icons.play_arrow,
+                              size: 34,
+                              color: Colors.white
+                            ),
+                            tooltip: _isPlaying ? 'Pause' : 
+                                    _isPaused ? 'Resume' : 
+                                    'Start',
                             onPressed: () {
                               if (_isPlaying) {
-                                // TODO: Implement pause
-                                setState(() { _isPlaying = false; });
+                                _pauseExercise();
+                              } else if (_isPaused) {
+                                _resumeExercise();
                               } else {
                                 _startCountdown();
                               }

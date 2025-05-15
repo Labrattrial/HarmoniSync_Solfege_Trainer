@@ -3,27 +3,110 @@ import '../services/music_service.dart';
 import '../utils/music_fonts.dart';
 import 'dart:math' as math;
 
-class MusicSheet extends StatelessWidget {
+class MusicSheet extends StatefulWidget {
   final Score score;
+  final bool isPlaying;
+  final double currentTime; // Current playback time in seconds
+  final int currentNoteIndex;
 
   const MusicSheet({
     super.key,
     required this.score,
+    this.isPlaying = false,
+    this.currentTime = 0.0,
+    this.currentNoteIndex = 0,
   });
+
+  @override
+  State<MusicSheet> createState() => _MusicSheetState();
+}
+
+class _MusicSheetState extends State<MusicSheet> with SingleTickerProviderStateMixin {
+  late ScrollController _scrollController;
+  late AnimationController _highlightController;
+  late Animation<double> _highlightAnimation;
+  double _currentX = 0.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController = ScrollController();
+    _highlightController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
+    );
+    _highlightAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _highlightController, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    _highlightController.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(MusicSheet oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.currentTime != oldWidget.currentTime) {
+      _updateScrollPosition();
+    }
+  }
+
+  void _updateScrollPosition() {
+    // Calculate the x position based on current time
+    const double tempo = 120.0; // beats per minute
+    const double secondsPerMinute = 60.0;
+    final double beatDuration = secondsPerMinute / tempo; // duration of one beat in seconds
+    
+    // Calculate which measure we should be showing based on current time
+    final double currentBeats = widget.currentTime / beatDuration;
+    final int currentMeasure = (currentBeats / widget.score.beats).floor();
+    
+    // Don't scroll if we're within 3 measures of the end
+    if (currentMeasure >= widget.score.measures.length - 3) {
+      return;
+    }
+    
+    // Calculate the scroll position for the current measure
+    final double measureWidth = 155.0; // Base measure width
+    final double targetX = currentMeasure * measureWidth;
+    
+    // Animate to the new position
+    _scrollController.animateTo(
+      targetX,
+      duration: const Duration(milliseconds: 500),
+      curve: Curves.easeInOut,
+    );
+    
+    setState(() {
+      _currentX = targetX;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     // Calculate total width needed for all measures
-    final measureCount = score.measures.length;
+    final measureCount = widget.score.measures.length;
     final minMeasureWidth = 155.0;
-    final totalWidth = (measureCount * minMeasureWidth) + 200.0; // margin for clef/time signature
+    final totalWidth = (measureCount * minMeasureWidth) + 200.0;
+    
     return SingleChildScrollView(
+      controller: _scrollController,
       scrollDirection: Axis.horizontal,
       child: Container(
         padding: const EdgeInsets.all(20),
         width: totalWidth,
         child: CustomPaint(
-          painter: MusicSheetPainter(score: score),
+          painter: MusicSheetPainter(
+            score: widget.score,
+            currentX: _currentX,
+            isPlaying: widget.isPlaying,
+            currentNoteIndex: widget.currentNoteIndex,
+            currentTime: widget.currentTime,
+          ),
           size: Size(totalWidth, 300),
         ),
       ),
@@ -33,6 +116,10 @@ class MusicSheet extends StatelessWidget {
 
 class MusicSheetPainter extends CustomPainter {
   final Score score;
+  final double currentX;
+  final bool isPlaying;
+  final int currentNoteIndex;
+  final double currentTime;  // Add currentTime parameter
   // Standard music engraving measurements
   static const double staffSpacing = 10.0;   // Space between staff lines
   static const double lineWidth = 1.2;      // Staff line thickness
@@ -47,7 +134,13 @@ class MusicSheetPainter extends CustomPainter {
   static const double staffStartY = 50.0;   // Top margin for staff
   static const double clefOffset = 85.0;     // Vertical offset for treble clef
 
-  MusicSheetPainter({required this.score});
+  MusicSheetPainter({
+    required this.score,
+    required this.currentX,
+    required this.isPlaying,
+    required this.currentNoteIndex,
+    required this.currentTime,  // Add currentTime to constructor
+  });
 
   // Map to store slur start positions by slur number
   final Map<int, Map<String, double>> _slurStartPositions = {};
@@ -431,6 +524,7 @@ class MusicSheetPainter extends CustomPainter {
           'y': noteY,
           'note': note,
           'index': i,
+          'measureIndex': m,
         });
         
         // Draw ledger lines if needed (skip for rests)
@@ -456,7 +550,7 @@ class MusicSheetPainter extends CustomPainter {
           _drawRest(canvas, noteX, 0, note, paint); // The y value (0) will be ignored by _drawRest
         } else {
           // Draw note components in correct order
-          _drawNoteHead(canvas, noteX, noteY, note, paint);
+          _drawNoteHead(canvas, noteX, noteY, note, paint, m, i);
           
           if (_hasStem(note.type)) {
             _drawStem(canvas, noteX, noteY, note, paint);
@@ -548,33 +642,7 @@ class MusicSheetPainter extends CustomPainter {
     );
   }
 
-  void _drawNote(Canvas canvas, double x, double startY, Note note, Paint paint) {
-    _drawLedgerLines(canvas, x, startY, staffStartY, paint);
-
-    if (note.alter != null && note.alter != 0) {
-      _drawAccidental(canvas, x - 20, startY, note.alter!, paint);
-    }
-
-    _drawNoteHead(canvas, x, startY, note, paint);
-
-    if (_hasStem(note.type)) {
-      _drawStem(canvas, x, startY, note, paint);
-    }
-
-    if (_hasFlag(note.type)) {
-      _drawFlag(canvas, x, startY, note, paint);
-    }
-
-    if (note.hasDot) {
-      _drawDot(canvas, x, startY, paint);
-    }
-
-    if (note.slurs.isNotEmpty) {
-      _drawSlurs(canvas, x, startY, note, paint);
-    }
-  }
-
-  void _drawNoteHead(Canvas canvas, double x, double y, Note note, Paint paint) {
+  void _drawNoteHead(Canvas canvas, double x, double y, Note note, Paint paint, int measureIndex, int noteIndex) {
     final text = note.type == 'whole' ? BravuraFont.noteheadWhole :
                 note.type == 'half' ? BravuraFont.noteheadHalf :
                 BravuraFont.noteheadBlack;
@@ -605,24 +673,83 @@ class MusicSheetPainter extends CustomPainter {
     // Calculate position - center the notehead on the staff line or space
     double noteX;
     if (shouldAdjustForStem) {
-      // NOTE: NOTE HEAD POSITION - Adjust this value if you change the stem position
-      // Since the stem is now more to the left, we can use a more centered position for the notehead
-      // For p-shaped quarter notes
-      noteX = x - textPainter.width / 2; // Center the note head now that stem is left of center
+      noteX = x - textPainter.width / 2;
     } else {
-      noteX = x - textPainter.width / 2; // Default center positioning
+      noteX = x - textPainter.width / 2;
     }
     final noteY = y - textPainter.height / 2;
+
+    // Calculate the total note index and timing
+    int totalNoteIndex = 0;
+    double totalBeats = 0.0;
+    bool isCurrentNote = false;
+
+    // Calculate total beats up to this note
+    for (int m = 0; m < measureIndex; m++) {
+      final measure = score.measures[m];
+      for (final measureNote in measure.notes) {
+        totalBeats += _getNoteDuration(measureNote);
+      }
+    }
+
+    // Add beats from current measure up to this note
+    final currentMeasure = score.measures[measureIndex];
+    for (int i = 0; i < noteIndex; i++) {
+      totalBeats += _getNoteDuration(currentMeasure.notes[i]);
+    }
+
+    // Calculate if this is the current note based on time
+    if (isPlaying) {
+      const double tempo = 120.0; // beats per minute
+      const double secondsPerMinute = 60.0;
+      final double beatDuration = secondsPerMinute / tempo;
+      final double currentBeats = currentTime / beatDuration;
+      
+      isCurrentNote = currentBeats >= totalBeats && 
+                     currentBeats < totalBeats + _getNoteDuration(note);
+    }
+
+    // Draw highlight if this is the current note
+    if (isPlaying && isCurrentNote && !note.isRest) {
+      final highlightPaint = Paint()
+        ..color = Colors.blue.withOpacity(0.3)
+        ..style = PaintingStyle.fill;
+      
+      // Draw a circular highlight around the note
+      canvas.drawCircle(
+        Offset(noteX + textPainter.width/2, noteY + textPainter.height/2),
+        noteSize * 0.8,
+        highlightPaint,
+      );
+    }
 
     // For half and whole notes, ensure crisp edges with proper stroke width
     if (note.type == 'half' || note.type == 'whole') {
       paint.style = PaintingStyle.stroke;
-      paint.strokeWidth = lineWidth * 1.2; // Slightly thicker for better visibility
+      paint.strokeWidth = lineWidth * 1.2;
     } else {
       paint.style = PaintingStyle.fill;
     }
     
     textPainter.paint(canvas, Offset(noteX, noteY));
+  }
+
+  // Helper method to get note duration in beats
+  double _getNoteDuration(Note note) {
+    switch (note.type) {
+      case 'whole':
+        return 4.0;
+      case 'half':
+        return 2.0;
+      case 'quarter':
+        return 1.0;
+      case 'eighth':
+        return 0.5;
+      case '16th':
+        return 0.25;
+      default:
+        return 1.0; // Default to quarter note duration
+    }
   }
 
   bool _hasStem(String type) {
