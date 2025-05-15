@@ -8,10 +8,12 @@ class MusicSheet extends StatefulWidget {
   final bool isPlaying;
   final double currentTime; // Current playback time in seconds
   final int currentNoteIndex;
+  final double bpm; // Add BPM parameter
 
   const MusicSheet({
     super.key,
     required this.score,
+    required this.bpm, // Make BPM required
     this.isPlaying = false,
     this.currentTime = 0.0,
     this.currentNoteIndex = 0,
@@ -50,16 +52,15 @@ class _MusicSheetState extends State<MusicSheet> with SingleTickerProviderStateM
   @override
   void didUpdateWidget(MusicSheet oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.currentTime != oldWidget.currentTime) {
+    if (widget.currentTime != oldWidget.currentTime || widget.bpm != oldWidget.bpm) {
       _updateScrollPosition();
     }
   }
 
   void _updateScrollPosition() {
-    // Calculate the x position based on current time
-    const double tempo = 120.0; // beats per minute
+    // Calculate the x position based on current time and BPM
     const double secondsPerMinute = 60.0;
-    final double beatDuration = secondsPerMinute / tempo; // duration of one beat in seconds
+    final double beatDuration = secondsPerMinute / widget.bpm; // Use widget.bpm instead of hardcoded tempo
     
     // Calculate which measure we should be showing based on current time
     final double currentBeats = widget.currentTime / beatDuration;
@@ -106,6 +107,7 @@ class _MusicSheetState extends State<MusicSheet> with SingleTickerProviderStateM
             isPlaying: widget.isPlaying,
             currentNoteIndex: widget.currentNoteIndex,
             currentTime: widget.currentTime,
+            bpm: widget.bpm,
           ),
           size: Size(totalWidth, 300),
         ),
@@ -120,6 +122,7 @@ class MusicSheetPainter extends CustomPainter {
   final bool isPlaying;
   final int currentNoteIndex;
   final double currentTime;  // Add currentTime parameter
+  final double bpm;  // Add BPM parameter
   // Standard music engraving measurements
   static const double staffSpacing = 10.0;   // Space between staff lines
   static const double lineWidth = 1.2;      // Staff line thickness
@@ -140,6 +143,7 @@ class MusicSheetPainter extends CustomPainter {
     required this.isPlaying,
     required this.currentNoteIndex,
     required this.currentTime,  // Add currentTime to constructor
+    required this.bpm,  // Add BPM to constructor
   });
 
   // Map to store slur start positions by slur number
@@ -700,9 +704,8 @@ class MusicSheetPainter extends CustomPainter {
 
     // Calculate if this is the current note based on time
     if (isPlaying) {
-      const double tempo = 120.0; // beats per minute
       const double secondsPerMinute = 60.0;
-      final double beatDuration = secondsPerMinute / tempo;
+      final double beatDuration = secondsPerMinute / bpm;  // Use the BPM from the widget
       final double currentBeats = currentTime / beatDuration;
       
       isCurrentNote = currentBeats >= totalBeats && 

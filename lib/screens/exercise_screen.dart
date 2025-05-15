@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:async';
+import 'dart:typed_data';
+import 'package:flutter_sound/flutter_sound.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../services/music_service.dart';
+import '../services/yin_algorithm.dart';
+import '../utils/note_utils.dart';
 import '../widgets/music_sheet.dart';
 
 class ExerciseScreen extends StatefulWidget {
@@ -26,6 +31,7 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
   bool _showCountdown = false;
   Timer? _countdownTimer;
   Timer? _playbackTimer;
+  Timer? _pitchDetectionTimer;
   double _currentTime = 0.0;
   double _totalDuration = 0.0;
   bool _reachedEnd = false;
@@ -33,6 +39,13 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
   int _currentNoteIndex = 0;
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
+  late FlutterSoundRecorder _recorder;
+  String? _currentDetectedNote;
+  String? _expectedNote;
+  bool _isCorrect = false;
+  StreamSubscription? _audioStreamSubscription;
+  StreamController<Uint8List>? _audioStreamController;
+  double _bpm = 120.0; // Default BPM
 
   @override
   void initState() {
@@ -51,13 +64,76 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
     _pulseAnimation = Tween<double>(begin: 1.0, end: 1.2).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
+
+    _recorder = FlutterSoundRecorder();
+    _initializeRecorder();
+    
+    // Ensure initial BPM is within valid range
+    _bpm = _bpm.clamp(40.0, 244.0);
+  }
+
+  Future<void> _initializeRecorder() async {
+    final status = await Permission.microphone.request();
+    if (status != PermissionStatus.granted) {
+      throw Exception('Microphone permission not granted');
+    }
+    await _recorder.openRecorder();
+  }
+
+  void _startPitchDetection() async {
+    try {
+      _audioStreamController = StreamController<Uint8List>();
+      
+      await _recorder.startRecorder(
+        toStream: _audioStreamController!.sink,
+        codec: Codec.pcm16,
+        numChannels: 1,
+        sampleRate: 44100,
+      );
+
+      _audioStreamSubscription = _audioStreamController!.stream.listen((buffer) {
+        if (!_isPlaying) return;
+
+        try {
+          final frequency = YinAlgorithm.detectPitch(buffer, 44100);
+          if (frequency != null) {
+            final note = NoteUtils.frequencyToNote(frequency);
+            setState(() {
+              _currentDetectedNote = note;
+              if (_expectedNote != null) {
+                _isCorrect = note == _expectedNote;
+              }
+            });
+          }
+        } catch (e) {
+          print('Error in pitch detection: $e');
+        }
+      });
+    } catch (e) {
+      print('Error starting recorder: $e');
+    }
+  }
+
+  void _stopPitchDetection() async {
+    _audioStreamSubscription?.cancel();
+    _audioStreamSubscription = null;
+    await _audioStreamController?.close();
+    _audioStreamController = null;
+    try {
+      await _recorder.stopRecorder();
+    } catch (e) {
+      print('Error stopping recorder: $e');
+    }
   }
 
   @override
   void dispose() {
     _countdownTimer?.cancel();
     _playbackTimer?.cancel();
+    _audioStreamSubscription?.cancel();
+    _audioStreamController?.close();
     _pulseController.dispose();
+    _recorder.closeRecorder();
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
       DeviceOrientation.landscapeLeft,
@@ -113,6 +189,172 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
     });
   }
 
+  void _showSettingsDialog() {
+    double tempBpm = _bpm; // Temporary variable to hold BPM value during slider changes
+    
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return SingleChildScrollView(
+            child: Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).viewInsets.bottom,
+              ),
+              child: AlertDialog(
+                backgroundColor: const Color(0xFF232B39),
+                title: const Text(
+                  'Note Speed Settings',
+                  style: TextStyle(color: Colors.white),
+                ),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.remove_circle_outline, color: Colors.white),
+                          onPressed: () {
+                            if (tempBpm > 40) {
+                              tempBpm = (tempBpm - 1).clamp(40.0, 244.0);
+                              setDialogState(() {}); // Update dialog state
+                              setState(() {
+                                _bpm = tempBpm;
+                                // Restart exercise with new BPM if currently playing
+                                if (_isPlaying) {
+                                  _stopExercise();
+                                  _startExercise();
+                                }
+                              });
+                            }
+                          },
+                        ),
+                        const SizedBox(width: 16),
+                        Text(
+                          '${tempBpm.round()} BPM',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        IconButton(
+                          icon: const Icon(Icons.add_circle_outline, color: Colors.white),
+                          onPressed: () {
+                            if (tempBpm < 244) {
+                              tempBpm = (tempBpm + 1).clamp(40.0, 244.0);
+                              setDialogState(() {}); // Update dialog state
+                              setState(() {
+                                _bpm = tempBpm;
+                                // Restart exercise with new BPM if currently playing
+                                if (_isPlaying) {
+                                  _stopExercise();
+                                  _startExercise();
+                                }
+                              });
+                            }
+                          },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    SliderTheme(
+                      data: SliderThemeData(
+                        activeTrackColor: Colors.blue,
+                        inactiveTrackColor: Colors.blue.withOpacity(0.2),
+                        thumbColor: Colors.white,
+                        overlayColor: Colors.blue.withOpacity(0.2),
+                        valueIndicatorColor: Colors.blue,
+                        valueIndicatorTextStyle: const TextStyle(color: Colors.white),
+                        trackHeight: 4.0,
+                        thumbShape: const RoundSliderThumbShape(
+                          enabledThumbRadius: 12.0,
+                          elevation: 4.0,
+                        ),
+                        overlayShape: const RoundSliderOverlayShape(
+                          overlayRadius: 24.0,
+                        ),
+                      ),
+                      child: Slider(
+                        value: tempBpm,
+                        min: 40,
+                        max: 244,
+                        divisions: 204,
+                        label: '${tempBpm.round()} BPM',
+                        onChanged: (value) {
+                          tempBpm = value;
+                          setDialogState(() {}); // Update dialog state
+                          setState(() {
+                            _bpm = value;
+                            // Restart exercise with new BPM if currently playing
+                            if (_isPlaying) {
+                              _stopExercise();
+                              _startExercise();
+                            }
+                          });
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: const [
+                        Text(
+                          '40 BPM',
+                          style: TextStyle(
+                            color: Colors.white54,
+                            fontSize: 12,
+                          ),
+                        ),
+                        Text(
+                          '244 BPM',
+                          style: TextStyle(
+                            color: Colors.white54,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Higher BPM = Faster Note Changes',
+                      style: TextStyle(
+                        color: Colors.white54,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () {
+                      // Apply final BPM value when closing dialog
+                      setState(() {
+                        _bpm = tempBpm;
+                        // Restart exercise with new BPM if currently playing
+                        if (_isPlaying) {
+                          _stopExercise();
+                          _startExercise();
+                        }
+                      });
+                      Navigator.pop(context);
+                    },
+                    child: const Text(
+                      'Close',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   void _startExercise() {
     // Cancel any existing timers
     _playbackTimer?.cancel();
@@ -121,32 +363,38 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
       _isPlaying = true;
       _isPaused = false;
       _reachedEnd = false;
-      _currentTime = 0.0;  // Reset to start at the first note
-      _currentNoteIndex = 0; // Reset to first note
+      _currentTime = 0.0;
+      _currentNoteIndex = 0;
     });
+
+    // Start pitch detection
+    _startPitchDetection();
 
     // Get the score from the future
     _scoreFuture.then((score) {
-      // Calculate beat duration based on tempo (default 120 BPM)
-      const double tempo = 120.0; // beats per minute
-      const double secondsPerMinute = 60.0;
-      final double beatDuration = secondsPerMinute / tempo; // duration of one beat in seconds
-      
-      // Start playback timer
+      // Start playback timer with dynamic BPM
       _playbackTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
         if (mounted) {
           setState(() {
             if (!_reachedEnd) {
               _currentTime += 0.05; // Increment by 50ms
               
-              // Update current note index based on beat duration
-              _currentNoteIndex = (_currentTime / beatDuration).floor();
+              // Calculate note duration based on current BPM
+              const double secondsPerMinute = 60.0;
+              final double noteDuration = secondsPerMinute / _bpm;
+              
+              // Update current note index based on dynamic note duration
+              _currentNoteIndex = (_currentTime / noteDuration).floor();
+              
+              // Update expected note
+              _updateExpectedNote(score);
               
               // Stop if we've reached the end (last measure position + extra time)
               if (_currentTime >= _lastMeasurePosition + 10.0) {
                 _reachedEnd = true;
                 _isPlaying = false;
                 _playbackTimer?.cancel();
+                _stopPitchDetection();
               }
             }
           });
@@ -157,10 +405,34 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
     });
   }
 
+  void _updateExpectedNote(Score score) {
+    // Find the current note in the score
+    int totalNotes = 0;
+    for (final measure in score.measures) {
+      for (final note in measure.notes) {
+        if (totalNotes == _currentNoteIndex && !note.isRest) {
+          setState(() {
+            _expectedNote = "${note.step}${note.octave}";
+            _isCorrect = false;
+          });
+          return;
+        }
+        totalNotes++;
+      }
+    }
+    setState(() {
+      _expectedNote = null;
+      _isCorrect = false;
+    });
+  }
+
   void _pauseExercise() {
     // Cancel the playback timer
     _playbackTimer?.cancel();
     _playbackTimer = null;
+    
+    // Stop pitch detection
+    _stopPitchDetection();
     
     setState(() {
       _isPlaying = false;
@@ -172,28 +444,45 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
     // Ensure no existing timer is running
     _playbackTimer?.cancel();
     
+    // Resume pitch detection
+    _startPitchDetection();
+    
     setState(() {
       _isPlaying = true;
       _isPaused = false;
     });
 
-    _playbackTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
-      if (mounted) {
-        setState(() {
-          if (!_reachedEnd) {
-            _currentTime += 0.05;
-            
-            // Stop if we've reached the end (last measure position + extra time)
-            if (_currentTime >= _lastMeasurePosition + 10.0) {
-              _reachedEnd = true;
-              _isPlaying = false;
-              _playbackTimer?.cancel();
+    // Get the score from the future
+    _scoreFuture.then((score) {
+      _playbackTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
+        if (mounted) {
+          setState(() {
+            if (!_reachedEnd) {
+              _currentTime += 0.05;
+              
+              // Calculate note duration based on current BPM
+              const double secondsPerMinute = 60.0;
+              final double noteDuration = secondsPerMinute / _bpm;
+              
+              // Update current note index based on dynamic note duration
+              _currentNoteIndex = (_currentTime / noteDuration).floor();
+              
+              // Update expected note
+              _updateExpectedNote(score);
+              
+              // Stop if we've reached the end (last measure position + extra time)
+              if (_currentTime >= _lastMeasurePosition + 10.0) {
+                _reachedEnd = true;
+                _isPlaying = false;
+                _playbackTimer?.cancel();
+                _stopPitchDetection();
+              }
             }
-          }
-        });
-      } else {
-        timer.cancel();
-      }
+          });
+        } else {
+          timer.cancel();
+        }
+      });
     });
   }
 
@@ -203,28 +492,31 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
     _playbackTimer = null;
     _countdownTimer?.cancel();
     
+    // Stop pitch detection
+    _stopPitchDetection();
+    
     setState(() {
       _isPlaying = false;
       _isPaused = false;
-      _currentTime = 0.0;  // Reset to start at the first note
+      _currentTime = 0.0;
       _showCountdown = false;
       _reachedEnd = false;
+      _currentDetectedNote = null;
+      _expectedNote = null;
+      _isCorrect = false;
     });
   }
 
-  // Calculate duration for a measure based on the score's time signature
+  // Calculate duration for a measure based on the score's time signature and current BPM
   double _calculateMeasureDuration(Score score) {
-    // Default tempo is 120 BPM (beats per minute)
-    const double defaultTempo = 120.0;
     const double secondsPerMinute = 60.0;
     
     // Get time signature from the score
     final beats = score.beats;
     final beatType = score.beatType;
     
-    // Calculate duration in seconds
-    // For 4/4 time, one measure = 4 beats at 120 BPM = 2 seconds
-    return (beats * secondsPerMinute) / defaultTempo;
+    // Calculate duration in seconds based on current BPM
+    return (beats * secondsPerMinute) / _bpm;
   }
 
   @override
@@ -288,6 +580,29 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
                     color: Colors.white,
                     fontSize: 72,
                     fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+          if (_isPlaying && _currentDetectedNote != null)
+            Positioned(
+              bottom: 100,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: _isCorrect ? Colors.green.withOpacity(0.8) : Colors.red.withOpacity(0.8),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    'Detected: $_currentDetectedNote (Expected: $_expectedNote)',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
               ),
@@ -381,6 +696,7 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
                           alignment: const Alignment(-0.8, 0.0),
                           child: MusicSheet(
                             score: score,
+                            bpm: _bpm,
                             isPlaying: _isPlaying,
                             currentTime: _currentTime,
                             currentNoteIndex: _currentNoteIndex,
@@ -474,9 +790,7 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
                           IconButton(
                             icon: const Icon(Icons.settings, size: 26, color: Colors.white),
                             tooltip: 'Settings',
-                            onPressed: () {
-                              // TODO: Implement settings/options
-                            },
+                            onPressed: _showSettingsDialog,
                           ),
                         ],
                       ),
