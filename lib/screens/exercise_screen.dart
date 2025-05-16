@@ -48,6 +48,7 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
   StreamController<Uint8List>? _audioStreamController;
   double _bpm = 120.0; // Default BPM
   final ScrollController _noteScrollController = ScrollController();
+  final Map<int, bool> _noteCorrectness = {};
 
   @override
   void initState() {
@@ -109,6 +110,8 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
               _currentDetectedNote = note;
               if (_expectedNote != null) {
                 _isCorrect = note == _expectedNote;
+                // Store the correctness state for the current note
+                _noteCorrectness[_currentNoteIndex] = _isCorrect;
                 // Update glow color based on correctness
                 _glowColorAnimation = ColorTween(
                   begin: Colors.transparent,
@@ -389,6 +392,7 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
       _reachedEnd = false;
       _currentTime = 0.0;
       _currentNoteIndex = 0;
+      _noteCorrectness.clear(); // Clear the correctness history when starting
     });
 
     // Start pitch detection
@@ -497,6 +501,7 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
           setState(() {
             _expectedNote = "${note.step}${note.octave}";
             _isCorrect = false;
+            // Don't update _noteCorrectness here, only when we get a correct/incorrect result
           });
           _scrollToCurrentNote(); // Scroll to keep current note visible
           return;
@@ -902,11 +907,21 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
       separatorBuilder: (context, idx) => const SizedBox(width: 12),
       itemBuilder: (context, idx) {
         final isCurrentNote = idx == _currentNoteIndex;
+        final wasCorrect = _noteCorrectness[idx];
+        
+        // Determine the color based on whether the note was correct or not
+        Color noteColor;
+        if (isCurrentNote) {
+          noteColor = _isCorrect ? Colors.green.withOpacity(0.8) : Colors.red.withOpacity(0.8);
+        } else if (wasCorrect != null) {
+          noteColor = wasCorrect ? Colors.green.withOpacity(0.8) : Colors.red.withOpacity(0.8);
+        } else {
+          noteColor = Colors.white;
+        }
+
         return Container(
           decoration: BoxDecoration(
-            color: isCurrentNote ? 
-              (_isCorrect ? Colors.green.withOpacity(0.8) : Colors.red.withOpacity(0.8)) : 
-              Colors.white,
+            color: noteColor,
             borderRadius: BorderRadius.circular(12),
             boxShadow: [
               BoxShadow(
@@ -920,7 +935,7 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
           child: Text(
             notes[idx],
             style: TextStyle(
-              color: isCurrentNote ? Colors.white : Colors.black,
+              color: isCurrentNote || wasCorrect != null ? Colors.white : Colors.black,
               fontWeight: FontWeight.bold,
               fontSize: 16,
               letterSpacing: 1.1,
