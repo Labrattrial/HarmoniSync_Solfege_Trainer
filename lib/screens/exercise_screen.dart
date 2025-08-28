@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+// Note: Web-only APIs removed per requirement. Using native/audio package paths only.
 import 'dart:async';
 import 'dart:typed_data';
+import 'dart:math' as math;
 import 'package:flutter_sound/flutter_sound.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../services/music_service.dart';
 import '../services/yin_algorithm.dart';
 import '../utils/note_utils.dart';
 import '../widgets/music_sheet.dart';
+import '../database/database_helper.dart';
 
 class ExerciseScreen extends StatefulWidget {
   final String level;
@@ -31,16 +34,22 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
   bool _showCountdown = false;
   Timer? _countdownTimer;
   Timer? _playbackTimer;
+  Timer? _metronomeTimer;
   Timer? _pitchDetectionTimer;
   double _currentTime = 0.0;
   double _totalDuration = 0.0;
   bool _reachedEnd = false;
   double _lastMeasurePosition = 1;
   int _currentNoteIndex = 0;
+  Stopwatch? _playbackStopwatch;
+  double _elapsedBeforePauseSec = 0.0;
+  int _totalPlayableNotes = 0;
+  int _correctNotesCount = 0;
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
   late Animation<Color?> _glowColorAnimation;
   late FlutterSoundRecorder _recorder;
+  late FlutterSoundPlayer _metronomePlayer;
   String? _currentDetectedNote;
   String? _expectedNote;
   bool _isCorrect = false;
@@ -49,6 +58,16 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
   double _bpm = 120.0; // Default BPM
   final ScrollController _noteScrollController = ScrollController();
   final Map<int, bool> _noteCorrectness = {};
+  bool _metronomeEnabled = false;
+  bool _metronomeFlash = false;
+  int _metronomeBeatIndex = 0;
+  int? _timeSigBeats;
+  int? _timeSigBeatType;
+  int _lastWholeBeat = -1;
+  // Metronome click timing control
+  int _lastClickStartUs = 0;
+  static const int _clickDurationMs = 50;
+  // Web Audio unlock not used on non-web platforms
 
   @override
   void initState() {
@@ -75,6 +94,8 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
 
     _recorder = FlutterSoundRecorder();
     _initializeRecorder();
+    _metronomePlayer = FlutterSoundPlayer();
+    _initializeMetronomePlayer();
     
     // Ensure initial BPM is within valid range
     _bpm = _bpm.clamp(40.0, 244.0);
@@ -86,10 +107,31 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
       throw Exception('Microphone permission not granted');
     }
     await _recorder.openRecorder();
+    try {
+      await _recorder.setSubscriptionDuration(const Duration(milliseconds: 60));
+    } catch (_) {}
   }
+
+  Future<void> _initializeMetronomePlayer() async {
+    try {
+      await _metronomePlayer.openPlayer();
+    } catch (e) {
+      // Fallback silently if player cannot open
+      print('Error opening metronome player: $e');
+    }
+  }
+
+  Future<void> _unlockWebAudioIfNeeded() async { return; }
 
   void _startPitchDetection() async {
     try {
+      // Avoid multiple starts
+      try {
+        if (_recorder.isRecording) {
+          await _recorder.stopRecorder();
+        }
+      } catch (_) {}
+
       _audioStreamController = StreamController<Uint8List>();
       
       await _recorder.startRecorder(
@@ -99,29 +141,36 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
         sampleRate: 44100,
       );
 
+      // Throttle heavy pitch detection work
+      Timer? _throttleTimer;
       _audioStreamSubscription = _audioStreamController!.stream.listen((buffer) {
         if (!_isPlaying) return;
 
         try {
+          if (_throttleTimer?.isActive ?? false) return;
+          _throttleTimer = Timer(const Duration(milliseconds: 80), () {});
+
           final frequency = YinAlgorithm.detectPitch(buffer, 44100);
-          if (frequency != null) {
-            final note = NoteUtils.frequencyToNote(frequency);
-            setState(() {
-              _currentDetectedNote = note;
-              if (_expectedNote != null) {
-                _isCorrect = note == _expectedNote;
-                // Store the correctness state for the current note
-                _noteCorrectness[_currentNoteIndex] = _isCorrect;
-                // Update glow color based on correctness
-                _glowColorAnimation = ColorTween(
-                  begin: Colors.transparent,
-                  end: _isCorrect 
-                    ? Colors.green.withOpacity(0.5)
-                    : Colors.red.withOpacity(0.5),
-                ).animate(_pulseController);
+          if (frequency == null) return;
+          final note = NoteUtils.frequencyToNote(frequency);
+          if (!mounted) return;
+          setState(() {
+            _currentDetectedNote = note;
+            if (_expectedNote != null) {
+              _isCorrect = note == _expectedNote;
+              final bool? previous = _noteCorrectness[_currentNoteIndex];
+              _noteCorrectness[_currentNoteIndex] = _isCorrect;
+              if (_isCorrect && previous != true) {
+                _correctNotesCount++;
               }
-            });
-          }
+              _glowColorAnimation = ColorTween(
+                begin: Colors.transparent,
+                end: _isCorrect 
+                  ? Colors.green.withOpacity(0.5)
+                  : Colors.red.withOpacity(0.5),
+              ).animate(_pulseController);
+            }
+          });
         } catch (e) {
           print('Error in pitch detection: $e');
         }
@@ -147,10 +196,12 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
   void dispose() {
     _countdownTimer?.cancel();
     _playbackTimer?.cancel();
+    _metronomeTimer?.cancel();
     _audioStreamSubscription?.cancel();
     _audioStreamController?.close();
     _pulseController.dispose();
     _recorder.closeRecorder();
+    _metronomePlayer.closePlayer();
     _noteScrollController.dispose();
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
@@ -171,6 +222,15 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
       setState(() {
         _scoreFuture = Future.value(score);
         _isLoading = false;
+        _timeSigBeats = score.beats;
+        _timeSigBeatType = score.beatType;
+        // Count playable (non-rest) notes for scoring
+        _totalPlayableNotes = 0;
+        for (final m in score.measures) {
+          for (final n in m.notes) {
+            if (!n.isRest) _totalPlayableNotes++;
+          }
+        }
       });
     } catch (e) {
       setState(() {
@@ -240,6 +300,9 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
                               if (mounted) {
                                 setState(() {
                                   _bpm = tempBpm;
+                                  if (_metronomeEnabled) {
+                                    _startMetronome();
+                                  }
                                   // Restart exercise with new BPM if currently playing
                                   if (_isPlaying) {
                                     _stopExercise();
@@ -269,6 +332,9 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
                               if (mounted) {
                                 setState(() {
                                   _bpm = tempBpm;
+                                  if (_metronomeEnabled) {
+                                    _startMetronome();
+                                  }
                                   // Restart exercise with new BPM if currently playing
                                   if (_isPlaying) {
                                     _stopExercise();
@@ -311,6 +377,9 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
                           if (mounted) {
                             setState(() {
                               _bpm = value;
+                              if (_metronomeEnabled) {
+                                _startMetronome();
+                              }
                               // Restart exercise with new BPM if currently playing
                               if (_isPlaying) {
                                 _stopExercise();
@@ -357,6 +426,9 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
                       if (mounted) {
                         setState(() {
                           _bpm = tempBpm;
+                          if (_metronomeEnabled) {
+                            _startMetronome();
+                          }
                           // Restart exercise with new BPM if currently playing
                           if (_isPlaying) {
                             _stopExercise();
@@ -393,10 +465,27 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
       _currentTime = 0.0;
       _currentNoteIndex = 0;
       _noteCorrectness.clear(); // Clear the correctness history when starting
+      _correctNotesCount = 0;
+    });
+
+    // Reset precise timing
+    _elapsedBeforePauseSec = 0.0;
+    _playbackStopwatch?.stop();
+    _playbackStopwatch = Stopwatch()..start();
+
+    // Ensure the first expected note is set at start
+    _scoreFuture.then((score) {
+      if (!mounted) return;
+      _updateExpectedNote(score);
     });
 
     // Start pitch detection
     _startPitchDetection();
+
+    // Start metronome if enabled
+    if (_metronomeEnabled) {
+      _lastWholeBeat = -1; // realign to next detected beat
+    }
 
     // Get the score from the future
     _scoreFuture.then((score) {
@@ -411,14 +500,45 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
         
         setState(() {
           if (!_reachedEnd) {
-            _currentTime += 0.05; // Increment by 50ms
+            final double stopwatchSec = (_playbackStopwatch?.elapsedMicroseconds ?? 0) / 1e6;
+            _currentTime = _elapsedBeforePauseSec + stopwatchSec;
             
             // Calculate note duration based on current BPM
             const double secondsPerMinute = 60.0;
             final double noteDuration = secondsPerMinute / _bpm;
             
-            // Calculate total beats up to current time
-            final double currentBeats = _currentTime / noteDuration;
+            // Calculate total beats up to current time (used by metronome and note selection)
+            final double metronomeBeatUnitSec = (60.0 / _bpm) * (4.0 / (_timeSigBeatType?.toDouble() ?? 4.0));
+            final double currentBeats = _currentTime / metronomeBeatUnitSec;
+
+            // End-of-sheet handling
+            if (_currentTime >= _lastMeasurePosition) {
+              _reachedEnd = true;
+              _isPlaying = false;
+              _playbackTimer?.cancel();
+              _stopPitchDetection();
+              _stopMetronome();
+              // Show completion summary
+              _showCompletionDialog();
+              return; // short-circuit to avoid any triggers in this tick
+            } else {
+              // Metronome: trigger on every beat (catch up if timer skipped)
+              if (_metronomeEnabled) {
+                final int targetBeat = currentBeats.floor();
+                const double clickDurationSec = 0.05; // 50ms
+                while (_lastWholeBeat < targetBeat) {
+                  _lastWholeBeat++;
+                  final int beatsPerMeasure = (_timeSigBeats ?? 4).clamp(1, 12);
+                  final bool isDownbeat = (_lastWholeBeat % beatsPerMeasure) == 0;
+                  final double beatStartSec = _lastWholeBeat * metronomeBeatUnitSec;
+                  if (beatStartSec + clickDurationSec <= _lastMeasurePosition) {
+                    _triggerMetronome(downbeat: isDownbeat);
+                  } else {
+                    break; // don't schedule beyond end
+                  }
+                }
+              }
+            }
             
             // Find the current note based on beats
             double totalBeats = 0.0;
@@ -439,18 +559,19 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
               if (foundNote) break;
             }
             
-            // Update current note index if it changed
-            if (newNoteIndex != _currentNoteIndex) {
+            // Update expected/current note on index change or if not set yet (first note)
+            if (newNoteIndex != _currentNoteIndex || _expectedNote == null) {
               _currentNoteIndex = newNoteIndex;
               _updateExpectedNote(score);
             }
             
-            // Stop if we've reached the end (last measure position + extra time)
-            if (_currentTime >= _lastMeasurePosition + 10.0) {
+            // Stop if we've reached the end of the sheet
+            if (_currentTime >= _lastMeasurePosition) {
               _reachedEnd = true;
               _isPlaying = false;
               _playbackTimer?.cancel();
               _stopPitchDetection();
+              _stopMetronome();
             }
           }
         });
@@ -524,6 +645,11 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
     
     // Stop pitch detection
     _stopPitchDetection();
+    _stopMetronome(immediate: true);
+    // Accumulate elapsed time and stop stopwatch
+    final double stopwatchSec = (_playbackStopwatch?.elapsedMicroseconds ?? 0) / 1e6;
+    _elapsedBeforePauseSec += stopwatchSec;
+    _playbackStopwatch?.stop();
     
     setState(() {
       _isPlaying = false;
@@ -545,6 +671,23 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
       _isPaused = false;
     });
 
+    // Resume metronome phase
+    if (_metronomeEnabled) {
+      _lastWholeBeat = -1;
+    }
+
+    // Ensure expected note is present when resuming (in case it was cleared)
+    _scoreFuture.then((score) {
+      if (!mounted) return;
+      if (_expectedNote == null) {
+        _updateExpectedNote(score);
+      }
+    });
+
+    // Start stopwatch for precise timing on resume
+    _playbackStopwatch?.stop();
+    _playbackStopwatch = Stopwatch()..start();
+
     // Get the score from the future
     _scoreFuture.then((score) {
       if (!mounted) return;
@@ -557,14 +700,45 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
         
         setState(() {
           if (!_reachedEnd) {
-            _currentTime += 0.05;
+            final double stopwatchSec = (_playbackStopwatch?.elapsedMicroseconds ?? 0) / 1e6;
+            _currentTime = _elapsedBeforePauseSec + stopwatchSec;
             
             // Calculate note duration based on current BPM
             const double secondsPerMinute = 60.0;
             final double noteDuration = secondsPerMinute / _bpm;
             
-            // Calculate total beats up to current time
-            final double currentBeats = _currentTime / noteDuration;
+            // Calculate total beats up to current time (used by metronome and note selection)
+            final double metronomeBeatUnitSec = (60.0 / _bpm) * (4.0 / (_timeSigBeatType?.toDouble() ?? 4.0));
+            final double currentBeats = _currentTime / metronomeBeatUnitSec;
+
+            // End-of-sheet handling
+            if (_currentTime >= _lastMeasurePosition) {
+              _reachedEnd = true;
+              _isPlaying = false;
+              _playbackTimer?.cancel();
+              _stopPitchDetection();
+              _stopMetronome();
+              // Show completion summary
+              _showCompletionDialog();
+              return; // short-circuit to avoid any triggers in this tick
+            } else {
+              // Metronome: trigger on every beat (catch up if timer skipped)
+              if (_metronomeEnabled) {
+                final int targetBeat = currentBeats.floor();
+                const double clickDurationSec = 0.05; // 50ms
+                while (_lastWholeBeat < targetBeat) {
+                  _lastWholeBeat++;
+                  final int beatsPerMeasure = (_timeSigBeats ?? 4).clamp(1, 12);
+                  final bool isDownbeat = (_lastWholeBeat % beatsPerMeasure) == 0;
+                  final double beatStartSec = _lastWholeBeat * metronomeBeatUnitSec;
+                  if (beatStartSec + clickDurationSec <= _lastMeasurePosition) {
+                    _triggerMetronome(downbeat: isDownbeat);
+                  } else {
+                    break; // don't schedule beyond end
+                  }
+                }
+              }
+            }
             
             // Find the current note based on beats
             double totalBeats = 0.0;
@@ -585,18 +759,19 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
               if (foundNote) break;
             }
             
-            // Update current note index if it changed
-            if (newNoteIndex != _currentNoteIndex) {
+            // Update expected/current note on index change or if not set yet
+            if (newNoteIndex != _currentNoteIndex || _expectedNote == null) {
               _currentNoteIndex = newNoteIndex;
               _updateExpectedNote(score);
             }
             
-            // Stop if we've reached the end (last measure position + extra time)
-            if (_currentTime >= _lastMeasurePosition + 10.0) {
+            // Stop if we've reached the end of the sheet
+            if (_currentTime >= _lastMeasurePosition) {
               _reachedEnd = true;
               _isPlaying = false;
               _playbackTimer?.cancel();
               _stopPitchDetection();
+              _stopMetronome();
             }
           }
         });
@@ -612,6 +787,7 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
     
     // Stop pitch detection
     _stopPitchDetection();
+    _stopMetronome(immediate: true);
     
     setState(() {
       _isPlaying = false;
@@ -623,6 +799,114 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
       _expectedNote = null;
       _isCorrect = false;
     });
+    _elapsedBeforePauseSec = 0.0;
+    _playbackStopwatch?.stop();
+    _playbackStopwatch = null;
+  }
+
+  void _startMetronome() {
+    _metronomeTimer?.cancel();
+    // No separate timer during playback; we drive clicks from the playback timer via _currentTime
+    _lastWholeBeat = -1;
+  }
+
+  void _stopMetronome({bool immediate = false}) {
+    _metronomeTimer?.cancel();
+    _metronomeTimer = null;
+    // Immediately stop any in-flight metronome sound to avoid extra click at the end
+    try {
+      if (_metronomePlayer.isOpen() && _metronomePlayer.isPlaying) {
+        if (immediate) {
+          // Hard stop (pause/stop actions)
+          _metronomePlayer.stopPlayer();
+        } else {
+          // Let current click finish naturally at sheet end
+          // Do nothing; player will end on its own
+        }
+      }
+    } catch (_) {}
+    if (mounted) setState(() => _metronomeFlash = false);
+  }
+
+  Future<void> _playMetronomeClick({bool downbeat = false}) async {
+    try {
+      if (!_metronomePlayer.isOpen()) {
+        try { await _metronomePlayer.openPlayer(); } catch (_) {}
+        if (!_metronomePlayer.isOpen()) {
+          // Fallback if we still cannot open
+          try { SystemSound.play(SystemSoundType.click); } catch (_) {}
+          return;
+        }
+      }
+      // Avoid cutting the click if it's still within its duration; otherwise, force stop to allow a new click
+      if (_metronomePlayer.isPlaying) {
+        final int nowUs = DateTime.now().microsecondsSinceEpoch;
+        final int elapsedMs = ((nowUs - _lastClickStartUs) / 1000).round();
+        if (elapsedMs < _clickDurationMs - 5) {
+          // Still in click window → skip retrigger to avoid cut
+          return;
+        }
+        // Click should have finished by now but player still reports playing → stop to start the next
+        try { await _metronomePlayer.stopPlayer(); } catch (_) {}
+      }
+      final Uint8List data = _generateClickPcm(
+        frequencyHz: downbeat ? 1400 : 1000,
+        durationMs: _clickDurationMs,
+        sampleRate: 44100,
+        amplitude: downbeat ? 0.6 : 0.4,
+      );
+      _lastClickStartUs = DateTime.now().microsecondsSinceEpoch;
+      try {
+        await _metronomePlayer.startPlayer(
+          fromDataBuffer: data,
+          codec: Codec.pcm16,
+          numChannels: 1,
+          sampleRate: 44100,
+        );
+      } catch (_) {
+        // Fallback to system click if start failed
+        try { SystemSound.play(SystemSoundType.click); } catch (_) {}
+      }
+    } catch (e) {
+      // As a fallback, try a system click
+      try { SystemSound.play(SystemSoundType.click); } catch (_) {}
+    }
+  }
+
+  // Web beep removed; native click path only
+
+  void _triggerMetronome({required bool downbeat}) {
+    // Guard: if we've reached or passed the sheet end or not actively playing, do not click
+    if (_currentTime >= _lastMeasurePosition || !_isPlaying) {
+      return;
+    }
+    _playMetronomeClick(downbeat: downbeat);
+    if (mounted) {
+      setState(() => _metronomeFlash = true);
+      Timer(const Duration(milliseconds: 120), () {
+        if (mounted) setState(() => _metronomeFlash = false);
+      });
+    }
+  }
+
+  Uint8List _generateClickPcm({
+    required double frequencyHz,
+    required int durationMs,
+    required int sampleRate,
+    required double amplitude,
+  }) {
+    final int totalSamples = (sampleRate * durationMs / 1000).round();
+    final Int16List samples = Int16List(totalSamples);
+    final double twoPiF = 2 * math.pi * frequencyHz;
+
+    for (int i = 0; i < totalSamples; i++) {
+      final double t = i / sampleRate;
+      // Simple short sine with exponential decay for a clicky feel
+      final double envelope = math.exp(-20 * t); // fast decay
+      final double s = math.sin(twoPiF * t) * amplitude * envelope;
+      samples[i] = (s * 32767).clamp(-32768.0, 32767.0).toInt();
+    }
+    return samples.buffer.asUint8List();
   }
 
   @override
@@ -672,6 +956,31 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
               ),
             ),
           ),
+          // Score indicator centered at top
+          Positioned(
+            top: 16,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.35),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  _totalPlayableNotes > 0
+                      ? 'Score: $_correctNotesCount / $_totalPlayableNotes  (${((_correctNotesCount / _totalPlayableNotes) * 100).clamp(0, 100).toStringAsFixed(0)}%)'
+                      : 'Score: 0 / 0 (0%)',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+          ),
           if (_showCountdown && _countdown > 0)
             Center(
               child: Container(
@@ -687,6 +996,29 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
                     fontSize: 72,
                     fontWeight: FontWeight.bold,
                   ),
+                ),
+              ),
+            ),
+          if (_metronomeEnabled && _isPlaying)
+            Positioned(
+              top: 16,
+              right: 16,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 80),
+                width: 16,
+                height: 16,
+                decoration: BoxDecoration(
+                  color: _metronomeFlash ? Colors.lightBlueAccent : Colors.white24,
+                  shape: BoxShape.circle,
+                  boxShadow: _metronomeFlash
+                      ? [
+                          BoxShadow(
+                            color: Colors.lightBlueAccent.withOpacity(0.6),
+                            blurRadius: 12,
+                            spreadRadius: 2,
+                          ),
+                        ]
+                      : [],
                 ),
               ),
             ),
@@ -743,10 +1075,9 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
 
         final score = snapshot.data!;
         
-        // Calculate total duration based on the score's time signature
-        final measureDuration = _calculateMeasureDuration(score);
-        _lastMeasurePosition = score.measures.length * measureDuration;
-        _totalDuration = _lastMeasurePosition + 10.0;  // Add 10 seconds after the last measure
+        // Calculate total duration based on actual note durations (more precise than measures * measureDuration)
+        _lastMeasurePosition = _calculateScoreDurationSeconds(score);
+        _totalDuration = _lastMeasurePosition;
 
         return SafeArea(
           child: LayoutBuilder(
@@ -833,6 +1164,25 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
                             tooltip: 'Previous Exercise',
                             onPressed: () {
                               // TODO: Implement previous exercise
+                            },
+                          ),
+                          IconButton(
+                            icon: Icon(
+                              _metronomeEnabled ? Icons.music_note : Icons.music_note_outlined,
+                              size: 26,
+                              color: _metronomeEnabled ? Colors.lightBlueAccent : Colors.white,
+                            ),
+                            tooltip: 'Toggle Metronome',
+                            onPressed: () {
+                              setState(() {
+                                _metronomeEnabled = !_metronomeEnabled;
+                              });
+                              if (_metronomeEnabled) {
+                                _startMetronome();
+                                _unlockWebAudioIfNeeded();
+                              } else {
+                                _stopMetronome();
+                              }
                             },
                           ),
                           IconButton(
@@ -949,12 +1299,112 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
   // Calculate duration for a measure based on the score's time signature and current BPM
   double _calculateMeasureDuration(Score score) {
     const double secondsPerMinute = 60.0;
-    
     // Get time signature from the score
-    final beats = score.beats;
-    final beatType = score.beatType;
-    
-    // Calculate duration in seconds based on current BPM
-    return (beats * secondsPerMinute) / _bpm;
+    final int beats = score.beats;
+    final int beatType = score.beatType;
+    // Duration of a single beat as defined by time signature (e.g., eighth in 6/8)
+    final double beatUnitSeconds = (secondsPerMinute / _bpm) * (4.0 / beatType);
+    // Measure duration = beats per measure * beat unit duration
+    return beats * beatUnitSeconds;
+  }
+
+  // Calculate precise score duration in seconds by summing note durations (including rests)
+  double _calculateScoreDurationSeconds(Score score) {
+    const double secondsPerMinute = 60.0;
+    final int beatType = score.beatType;
+    final double beatUnitSeconds = (secondsPerMinute / _bpm) * (4.0 / beatType);
+    double totalBeats = 0.0;
+    for (final measure in score.measures) {
+      for (final note in measure.notes) {
+        totalBeats += _getNoteDuration(note);
+      }
+    }
+    return totalBeats * beatUnitSeconds;
+  }
+
+  void _showCompletionDialog() {
+    if (!mounted) return;
+    final int total = _totalPlayableNotes;
+    final int correct = _correctNotesCount.clamp(0, total);
+    final String percent = total > 0
+        ? ((correct / total) * 100).clamp(0, 100).toStringAsFixed(0)
+        : '0';
+
+    // Save practice session to database
+    _savePracticeSession(correct, total, percent);
+
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF232B39),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text(
+            'Exercise Complete',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Score: $correct / $total',
+                style: const TextStyle(color: Colors.white, fontSize: 18),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '$percent%',
+                style: const TextStyle(color: Colors.lightBlueAccent, fontSize: 22, fontWeight: FontWeight.w700),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: const Text('Close', style: TextStyle(color: Colors.white70)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.lightBlueAccent,
+                foregroundColor: Colors.black,
+              ),
+              onPressed: () {
+                Navigator.of(context).pop();
+                _stopExercise();
+                _startCountdown();
+              },
+              child: const Text('Replay'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _savePracticeSession(int correctNotes, int totalNotes, String percentage) async {
+    try {
+      final now = DateTime.now();
+      final date = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+      final time = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+      final duration = _currentTime;
+      
+      final session = {
+        'level': widget.level,
+        'score': correctNotes,
+        'total_notes': totalNotes,
+        'percentage': double.parse(percentage),
+        'practice_date': date,
+        'practice_time': time,
+        'duration_seconds': duration,
+        'created_at': now.toIso8601String(),
+      };
+
+      final dbHelper = DatabaseHelper();
+      await dbHelper.insertPracticeSession(session);
+    } catch (e) {
+      print('Error saving practice session: $e');
+    }
   }
 } 
