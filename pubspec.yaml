@@ -41,6 +41,7 @@ dependencies:
   path: ^1.8.3 # For path manipulation
   sqflite: ^2.3.2 # For SQLite database
   google_fonts: ^6.1.0
+  file_picker: ^8.0.0+1 # For file picking
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -98,6 +99,7 @@ flutter:
     - assets/1.musicxml
     - assets/2.musicxml
     - assets/3.musicxml
+    - assets/logo/
 
   fonts:
     - family: Bravura

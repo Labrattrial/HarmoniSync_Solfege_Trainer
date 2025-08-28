@@ -16,10 +16,10 @@ class WelcomeScreen extends StatelessWidget {
                 begin: Alignment(-0.9, -0.8),
                 end: Alignment(1.0, 0.9),
                 colors: [
-                  Color(0xFFFFF9C4), // light yellow 200
-                  Color(0xFFFFECB3), // light amber 200
                   Color(0xFFE3F2FD), // light blue 50
                   Color(0xFFBBDEFB), // light blue 100
+                  Color(0xFF90CAF9), // light blue 200
+                  Color(0xFF64B5F6), // light blue 300
                 ],
                 stops: [0.0, 0.3, 0.7, 1.0],
               ),
@@ -57,25 +57,30 @@ class WelcomeScreen extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Container(
-                        height: 72,
-                        width: 72,
+                        height: 104,
+                        width: 104,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: theme.colorScheme.primary,
-                          border: Border.all(color: theme.colorScheme.secondary, width: 3),
+                          color: const Color(0xFF1976D2), // Solid darker blue
+                          border: Border.all(color: theme.colorScheme.secondary.withOpacity(0.8), width: 3),
                           boxShadow: [
                             BoxShadow(
-                              color: theme.colorScheme.primary.withOpacity(0.35),
+                              color: const Color(0xFF1976D2).withOpacity(0.4),
                               blurRadius: 24,
                               offset: const Offset(0, 12),
                             )
                           ],
                         ),
-                        child: const Icon(Icons.music_note_rounded, color: Colors.white, size: 36),
+                        child: Image.asset(
+                          'assets/logo/LOGO.png',
+                          width: 52,
+                          height: 52,
+                          fit: BoxFit.contain,
+                        ),
                       ),
                       const SizedBox(height: 24),
                       Text(
-                        'Welcome to Music Trainer',
+                        'Welcome to HarmoniSync',
                         style: theme.textTheme.headlineMedium?.copyWith(
                           fontWeight: FontWeight.w800,
                           color: theme.colorScheme.primary,

@@ -313,34 +313,43 @@ class _ProgressScreenState extends State<ProgressScreen> {
           ),
         ],
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 32, color: color),
-            const SizedBox(height: 8),
-            Text(
-              value,
-              style: const TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Colors.black87,
+              child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 32, color: color),
+              const SizedBox(height: 8),
+              Flexible(
+                child: Text(
+                  value,
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                  textAlign: TextAlign.center,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              title,
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey[600],
-                fontWeight: FontWeight.w500,
+              const SizedBox(height: 4),
+              Flexible(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                    fontWeight: FontWeight.w500,
+                  ),
+                  textAlign: TextAlign.center,
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 2,
+                ),
               ),
-              textAlign: TextAlign.center,
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
     );
   }
 
@@ -593,14 +602,17 @@ class _ProgressScreenState extends State<ProgressScreen> {
       ),
       title: Row(
         children: [
-          Text(
-            'Level $level Exercise',
-            style: const TextStyle(
-              fontWeight: FontWeight.w600,
-              fontSize: 16,
+          Expanded(
+            child: Text(
+              'Level $level Exercise',
+              style: const TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 16,
+              ),
+              overflow: TextOverflow.ellipsis,
             ),
           ),
-          const Spacer(),
+          const SizedBox(width: 8),
           Text(
             '${percentage.toStringAsFixed(1)}%',
             style: TextStyle(
@@ -621,6 +633,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
               color: Colors.grey[600],
               fontSize: 14,
             ),
+            overflow: TextOverflow.ellipsis,
           ),
           const SizedBox(height: 2),
           Text(
@@ -629,6 +642,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
               color: Colors.grey[500],
               fontSize: 12,
             ),
+            overflow: TextOverflow.ellipsis,
           ),
         ],
       ),
