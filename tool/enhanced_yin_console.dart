@@ -1,0 +1,43 @@
+import 'dart:math';
+import 'dart:typed_data';
+import 'dart:io';
+
+import 'package:pitch_detector/services/enhanced_yin.dart';
+
+Uint8List _genSinePcm16(double f, int sr, int n, {double amp = 0.5, double noise = 0.0}) {
+	final bytes = Uint8List(n * 2);
+	final view = ByteData.sublistView(bytes);
+	final rnd = Random(42);
+	for (int i = 0; i < n; i++) {
+		final t = i / sr;
+		double s = amp * sin(2 * pi * f * t);
+		if (noise > 0) s += (rnd.nextDouble() * 2 - 1) * noise;
+		s = s.clamp(-1.0, 1.0);
+		final v = (s * 32767).round();
+		view.setInt16(i * 2, v, Endian.little);
+	}
+	return bytes;
+}
+
+void main(List<String> args) async {
+	const sr = 44100;
+	const frame = 2048;
+	final enh = EnhancedYin(sampleRate: sr, wienerStrength: 0.5, vadSensitivity: 0.6, medianWindow: 5, upsampleFactor: 2, enableParabolicRefinement: true);
+
+	stdout.writeln('--- Synthetic 440 Hz for 12 frames ---');
+	double? last;
+	for (int i = 0; i < 12; i++) {
+		final data = _genSinePcm16(440, sr, frame, amp: 0.5, noise: 0.02);
+		last = enh.processFrame(data, sr);
+		stdout.writeln('frame ${i + 1}: ${last?.toStringAsFixed(1) ?? 'null'} Hz');
+	}
+
+	stdout.writeln('--- Silence for 8 frames ---');
+	for (int i = 0; i < 8; i++) {
+		final silence = Uint8List(frame * 2);
+		final hz = enh.processFrame(silence, sr);
+		stdout.writeln('silence ${i + 1}: ${hz?.toStringAsFixed(1) ?? 'null'} Hz');
+	}
+
+	stdout.writeln('Done.');
+} 
