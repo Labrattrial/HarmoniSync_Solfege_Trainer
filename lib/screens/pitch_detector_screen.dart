@@ -167,66 +167,76 @@ class _PitchDetectorScreenState extends State<PitchDetectorScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text("Solfege Pitch Trainer"),
-        backgroundColor: Colors.blueAccent,
         centerTitle: true,
       ),
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          return SingleChildScrollView(
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  minHeight: constraints.maxHeight,
-                ),
-                child: IntrinsicHeight(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      const SizedBox(height: 10),
-                      Text(
-                        _detectedPitch != null
-                            ? "🎵 Pitch: ${_detectedPitch!.toStringAsFixed(2)} Hz\n🎶 Note: $_detectedNote"
-                            : "Press start to begin",
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: isLandscape ? 20 : 22,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.black87,
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                      ScoreSheetWidget(
-                        detectedNote: _isRecording ? _detectedNote : null,
-                        currentIndex: _isRecording ? _currentNoteIndex : -1,
-                      ),
-                      const Spacer(),
-                      ElevatedButton(
-                        onPressed: _startStopRecording,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blueAccent,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          padding: EdgeInsets.symmetric(
-                            horizontal: isLandscape ? 40 : 24,
-                            vertical: isLandscape ? 20 : 16,
-                          ),
-                          textStyle: TextStyle(
-                            fontSize: isLandscape ? 18 : 20,
-                            fontWeight: FontWeight.bold,
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment(-0.9, -0.8),
+            end: Alignment(1.0, 0.9),
+            colors: [
+              Color(0xFFFFF9C4),
+              Color(0xFFFFECB3),
+              Color(0xFFE3F2FD),
+              Color(0xFFBBDEFB),
+            ],
+            stops: [0.0, 0.35, 0.7, 1.0],
+          ),
+        ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    minHeight: constraints.maxHeight,
+                  ),
+                  child: IntrinsicHeight(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        const SizedBox(height: 10),
+                        Text(
+                          _detectedPitch != null
+                              ? "🎵 Pitch: ${_detectedPitch!.toStringAsFixed(2)} Hz\n🎶 Note: $_detectedNote"
+                              : "Press start to begin",
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: isLandscape ? 20 : 22,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.black87,
                           ),
                         ),
-                        child: Text(_isRecording ? "⏹ Stop" : "🎙 Start"),
-                      ),
-                      const SizedBox(height: 30),
-                    ],
+                        const SizedBox(height: 20),
+                        ScoreSheetWidget(
+                          detectedNote: _isRecording ? _detectedNote : null,
+                          currentIndex: _isRecording ? _currentNoteIndex : -1,
+                        ),
+                        const Spacer(),
+                        ElevatedButton(
+                          onPressed: _startStopRecording,
+                          style: ElevatedButton.styleFrom(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: isLandscape ? 40 : 24,
+                              vertical: isLandscape ? 20 : 16,
+                            ),
+                            textStyle: TextStyle(
+                              fontSize: isLandscape ? 18 : 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          child: Text(_isRecording ? "⏹ Stop" : "🎙 Start"),
+                        ),
+                        const SizedBox(height: 30),
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
-          );
-        },
+            );
+          },
+        ),
       ),
     );
   }

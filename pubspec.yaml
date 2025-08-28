@@ -40,6 +40,7 @@ dependencies:
   pdf: ^3.10.7 # For PDF handling
   path: ^1.8.3 # For path manipulation
   sqflite: ^2.3.2 # For SQLite database
+  google_fonts: ^6.1.0
 dev_dependencies:
   flutter_test:
     sdk: flutter
