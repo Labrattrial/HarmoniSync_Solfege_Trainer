@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'dart:io';
 import 'package:permission_handler/permission_handler.dart';
@@ -7,6 +7,10 @@ import 'dart:convert';
 import 'package:path_provider/path_provider.dart';
 import 'dart:math' as math;
 import 'package:path/path.dart' as p;
+import 'package:shared_preferences/shared_preferences.dart';
+import '../services/music_service.dart';
+import '../widgets/music_sheet.dart';
+import 'converted_music_screen.dart';
 
 class SheetConverterScreen extends StatefulWidget {
   const SheetConverterScreen({super.key});
@@ -44,12 +48,98 @@ class _SheetConverterScreenState extends State<SheetConverterScreen> with Single
       vsync: this,
       duration: const Duration(milliseconds: 1200),
     )..repeat();
+    _loadConvertedItems(); // Add this line
   }
 
   @override
   void dispose() {
     _loaderController.dispose();
     super.dispose();
+  }
+
+  /// Load previously converted items from SharedPreferences and scan for existing files
+  Future<void> _loadConvertedItems() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedItems = prefs.getStringList('converted_items') ?? [];
+      
+      // Convert saved items back to list of maps
+      final List<Map<String, String>> items = [];
+      for (final itemJson in savedItems) {
+        final item = Map<String, String>.from(jsonDecode(itemJson));
+        // Verify the file still exists
+        if (await File(item['path'] ?? '').exists()) {
+          items.add(item);
+        }
+      }
+      
+      // Also scan documents directory for any MusicXML files that might not be in the list
+      final directory = await getApplicationDocumentsDirectory();
+      final files = directory.listSync();
+      for (final file in files) {
+        if (file is File && file.path.endsWith('.musicxml')) {
+          final fileName = p.basename(file.path);
+          final pdfName = fileName.replaceAll('.musicxml', '.pdf');
+          
+          // Check if this file is already in our list
+          final exists = items.any((item) => item['name'] == pdfName);
+          if (!exists) {
+            items.add({'name': pdfName, 'path': file.path});
+          }
+        }
+      }
+      
+      setState(() {
+        _convertedItems.clear();
+        _convertedItems.addAll(items);
+      });
+    } catch (e) {
+      print('Error loading converted items: $e');
+    }
+  }
+
+  /// Save converted items to SharedPreferences
+  Future<void> _saveConvertedItems() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final itemsJson = _convertedItems.map((item) => jsonEncode(item)).toList();
+      await prefs.setStringList('converted_items', itemsJson);
+    } catch (e) {
+      print('Error saving converted items: $e');
+    }
+  }
+
+  /// Load MusicXML from a file path and parse it into a Score object
+  Future<Score?> _loadMusicXMLFromFile(String filePath) async {
+    try {
+      final file = File(filePath);
+      if (!await file.exists()) {
+        print('File does not exist: $filePath');
+        return null;
+      }
+      
+      final xmlString = await file.readAsString();
+      final score = Score.fromXML(xmlString);
+      return score;
+    } catch (e) {
+      print('Error loading MusicXML from file: $e');
+      return null;
+    }
+  }
+
+  /// Open and display a converted MusicXML file
+  Future<void> _openMusicSheet(String filePath, String fileName) async {
+    if (mounted) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ConvertedMusicScreen(
+            filePath: filePath,
+            fileName: fileName,
+          ),
+        ),
+      );
+    }
   }
 
   Future<String> _saveMusicXml(String content, String pdfFileName) async {
@@ -110,10 +200,24 @@ class _SheetConverterScreenState extends State<SheetConverterScreen> with Single
     }
   }
 
-  void _removePdf(int index) {
+  void _removePdf(int index) async {
+    final item = _convertedItems[index];
+    // Delete the actual file
+    try {
+      final file = File(item['path'] ?? '');
+      if (await file.exists()) {
+        await file.delete();
+      }
+    } catch (e) {
+      print('Error deleting file: $e');
+    }
+    
     setState(() {
       _convertedItems.removeAt(index);
     });
+    
+    // Save the updated list
+    await _saveConvertedItems();
   }
 
   // ==========================================================================
@@ -186,6 +290,8 @@ class _SheetConverterScreenState extends State<SheetConverterScreen> with Single
         );
       }
     }
+    // Save the updated list
+    await _saveConvertedItems();
   }
 
   /// Convert all PDF files in the list (placeholder for future multi-select)
@@ -405,9 +511,7 @@ class _SheetConverterScreenState extends State<SheetConverterScreen> with Single
                                               icon: const Icon(Icons.open_in_new),
                                               color: _brandAccent,
                                               tooltip: 'Open',
-                                              onPressed: () {
-                                                // open hook
-                                              },
+                                              onPressed: () => _openMusicSheet(item['path'] ?? '', item['name'] ?? ''),
                                             ),
                                             IconButton(
                                               icon: const Icon(Icons.ios_share),
