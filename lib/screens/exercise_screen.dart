@@ -12,6 +12,17 @@ import '../utils/note_utils.dart';
 import '../widgets/music_sheet.dart';
 import '../database/database_helper.dart';
 
+// ============================================================================
+// EXERCISE SCREEN - Main screen for practicing pitch detection exercises
+// ============================================================================
+// This screen handles:
+// - Loading and displaying music scores
+// - Playing exercises with adjustable BPM
+// - Real-time pitch detection using microphone
+// - Metronome functionality
+// - Exercise controls (play, pause, replay)
+// - Score tracking and progress saving
+
 class ExerciseScreen extends StatefulWidget {
   final String level;
 
@@ -25,93 +36,150 @@ class ExerciseScreen extends StatefulWidget {
 }
 
 class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProviderStateMixin {
-  late Future<Score> _scoreFuture;
-  bool _isLoading = true;
-  String? _error;
-  bool _isPlaying = false;
-  bool _isPaused = false;
-  int _countdown = 3;
-  bool _showCountdown = false;
-  Timer? _countdownTimer;
-  Timer? _playbackTimer;
-  Timer? _metronomeTimer;
-  Timer? _pitchDetectionTimer;
-  double _currentTime = 0.0;
-  double _totalDuration = 0.0;
-  bool _reachedEnd = false;
-  double _lastMeasurePosition = 1;
-  int _currentNoteIndex = 0;
-  Stopwatch? _playbackStopwatch;
-  double _elapsedBeforePauseSec = 0.0;
-  int _totalPlayableNotes = 0;
-  int _correctNotesCount = 0;
-  late AnimationController _pulseController;
-  late Animation<double> _pulseAnimation;
-  late Animation<Color?> _glowColorAnimation;
-  late FlutterSoundRecorder _recorder;
-  late FlutterSoundPlayer _metronomePlayer;
-  String? _currentDetectedNote;
-  String? _expectedNote;
-  bool _isCorrect = false;
-  StreamSubscription? _audioStreamSubscription;
-  StreamController<Uint8List>? _audioStreamController;
-  double _bpm = 120.0; // Default BPM
-  final ScrollController _noteScrollController = ScrollController();
-  final Map<int, bool> _noteCorrectness = {};
-  bool _metronomeEnabled = false;
-  bool _metronomeFlash = false;
-  int _metronomeBeatIndex = 0;
-  int? _timeSigBeats;
-  int? _timeSigBeatType;
-  int _lastWholeBeat = -1;
-  // Metronome click timing control
-  int _lastClickStartUs = 0;
-  static const int _clickDurationMs = 50;
+  // ============================================================================
+  // STATE VARIABLES - Track the current state of the exercise
+  // ============================================================================
+  
+  // Exercise Data & Loading
+  late Future<Score> _scoreFuture;        // Holds the music score data
+  bool _isLoading = true;                 // Shows loading spinner while score loads
+  String? _error;                         // Stores any error messages
+  
+  // Playback Control States
+  bool _isPlaying = false;                // True when exercise is actively playing
+  bool _isPaused = false;                 // True when exercise is paused
+  bool _reachedEnd = false;               // True when exercise has finished
+  
+  // Countdown & Timing
+  int _countdown = 3;                     // Countdown number (3, 2, 1, 0)
+  bool _showCountdown = false;            // Whether to show countdown overlay
+  Timer? _countdownTimer;                 // Timer for countdown animation
+  Timer? _playbackTimer;                  // Main timer for exercise playback
+  Timer? _metronomeTimer;                 // Timer used for metronome when needed
+  double _currentTime = 0.0;              // Current position in exercise (seconds)
+  double _totalDuration = 0.0;            // Total length of exercise (seconds)
+  double _lastMeasurePosition = 1;        // End position of last measure
+  
+  // Note Tracking
+  int _currentNoteIndex = 0;              // Index of current note being played
+  String? _expectedNote;                  // The note that should be sung/played
+  String? _currentDetectedNote;           // The note detected from microphone
+  bool _isCorrect = false;                // Whether detected note matches expected
+  
+  // Score & Progress Tracking
+  int _totalPlayableNotes = 0;            // Total number of notes (excluding rests)
+  int _correctNotesCount = 0;             // Number of correctly played notes
+  final Map<int, bool> _noteCorrectness = {}; // Tracks correctness of each note
+  
+  // Animation & Visual Effects
+  late AnimationController _pulseController;      // Controls note highlighting animation
+  late Animation<double> _pulseAnimation;         // Scale animation for current note
+  late Animation<Color?> _glowColorAnimation;     // Color animation for feedback
+  
+  // Audio Recording & Pitch Detection
+  late FlutterSoundRecorder _recorder;            // Records audio from microphone
+  StreamSubscription? _audioStreamSubscription;   // Listens to audio stream
+  StreamController<Uint8List>? _audioStreamController; // Controls audio data flow
+  
+  // Metronome System
+  late FlutterSoundPlayer _metronomePlayer;       // Plays metronome click sounds
+  bool _metronomeEnabled = false;                 // Whether metronome is on/off
+  bool _metronomeFlash = false;                   // Visual flash for metronome beats
+  int _metronomeBeatIndex = 0;                    // Current beat in metronome pattern
+  int? _timeSigBeats;                             // Time signature beats (e.g., 4 in 4/4)
+  int? _timeSigBeatType;                          // Time signature beat type (e.g., 4 in 4/4)
+  int _lastWholeBeat = -1;                        // Last metronome beat that was played
+  int _lastClickStartUs = 0;                      // Timestamp of last metronome click
+  static const int _clickDurationMs = 50;         // Duration of metronome click sound
+  
+  // Exercise Settings
+  double _bpm = 120.0;                            // Beats per minute (exercise speed)
+  
+  // Precise timing helpers
+  Stopwatch? _playbackStopwatch;                  // High-precision stopwatch for playback
+  double _elapsedBeforePauseSec = 0.0;            // Accumulated time before a pause
+  
+  // UI Controllers
+  final ScrollController _noteScrollController = ScrollController(); // Scrolls note list
+  
   // Web Audio unlock not used on non-web platforms
 
   @override
   void initState() {
     super.initState();
+    
+    // ============================================================================
+    // INITIALIZATION - Set up the exercise screen when it first loads
+    // ============================================================================
+    
+    // Force landscape orientation for better music sheet viewing
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
+    
+    // Load the music score for this exercise level
     _loadScore();
     
+    // ============================================================================
+    // ANIMATION SETUP - Create visual effects for note highlighting
+    // ============================================================================
+    
+    // Create a repeating pulse animation for the current note
     _pulseController = AnimationController(
       duration: const Duration(milliseconds: 1500),
       vsync: this,
     )..repeat(reverse: true);
     
+    // Scale animation: note grows from 1.0x to 1.2x size
     _pulseAnimation = Tween<double>(begin: 1.0, end: 1.2).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
 
+    // Color animation: note glows from transparent to green/red based on correctness
     _glowColorAnimation = ColorTween(
       begin: Colors.transparent,
       end: Colors.green.withOpacity(0.5),
     ).animate(_pulseController);
 
+    // ============================================================================
+    // AUDIO SYSTEM SETUP - Initialize microphone and metronome
+    // ============================================================================
+    
+    // Set up microphone recorder for pitch detection
     _recorder = FlutterSoundRecorder();
     _initializeRecorder();
+    
+    // Set up metronome player for beat sounds
     _metronomePlayer = FlutterSoundPlayer();
     _initializeMetronomePlayer();
     
-    // Ensure initial BPM is within valid range
+    // Ensure BPM is within valid range (40-244 BPM)
     _bpm = _bpm.clamp(40.0, 244.0);
   }
 
+  // ============================================================================
+  // AUDIO INITIALIZATION - Set up microphone and metronome systems
+  // ============================================================================
+  
+  /// Request microphone permission and set up audio recorder
   Future<void> _initializeRecorder() async {
+    // Ask user for permission to use microphone
     final status = await Permission.microphone.request();
     if (status != PermissionStatus.granted) {
       throw Exception('Microphone permission not granted');
     }
+    
+    // Open the audio recorder
     await _recorder.openRecorder();
+    
+    // Set how often we get audio data (60ms intervals for real-time processing)
     try {
       await _recorder.setSubscriptionDuration(const Duration(milliseconds: 60));
     } catch (_) {}
   }
 
+  /// Set up the metronome player for beat sounds
   Future<void> _initializeMetronomePlayer() async {
     try {
       await _metronomePlayer.openPlayer();
@@ -121,48 +189,70 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
     }
   }
 
+  /// Web audio unlock function (not needed on mobile)
   Future<void> _unlockWebAudioIfNeeded() async { return; }
 
+  // ============================================================================
+  // PITCH DETECTION - Real-time audio analysis to detect sung/played notes
+  // ============================================================================
+  
+  /// Start listening to microphone and analyzing pitch in real-time
   void _startPitchDetection() async {
     try {
-      // Avoid multiple starts
+      // Stop any existing recording to avoid conflicts
       try {
         if (_recorder.isRecording) {
           await _recorder.stopRecorder();
         }
       } catch (_) {}
 
+      // Create a stream to receive audio data from microphone
       _audioStreamController = StreamController<Uint8List>();
       
+      // Start recording audio and send it to our stream
       await _recorder.startRecorder(
         toStream: _audioStreamController!.sink,
-        codec: Codec.pcm16,
-        numChannels: 1,
-        sampleRate: 44100,
+        codec: Codec.pcm16,        // 16-bit audio quality
+        numChannels: 1,            // Mono audio (single channel)
+        sampleRate: 44100,         // CD-quality sample rate
       );
 
-      // Throttle heavy pitch detection work
+      // Listen to the audio stream and analyze each chunk
       Timer? _throttleTimer;
       _audioStreamSubscription = _audioStreamController!.stream.listen((buffer) {
+        // Only process audio when exercise is playing
         if (!_isPlaying) return;
 
         try {
+          // Throttle processing to avoid overwhelming the system (80ms intervals)
           if (_throttleTimer?.isActive ?? false) return;
           _throttleTimer = Timer(const Duration(milliseconds: 80), () {});
 
+          // Convert audio buffer to frequency using Yin algorithm
           final frequency = YinAlgorithm.detectPitch(buffer, 44100);
           if (frequency == null) return;
+          
+          // Convert frequency to musical note (e.g., A4, C5)
           final note = NoteUtils.frequencyToNote(frequency);
           if (!mounted) return;
+          
+          // Update the UI with detected note and check correctness
           setState(() {
             _currentDetectedNote = note;
             if (_expectedNote != null) {
+              // Check if detected note matches what should be played
               _isCorrect = note == _expectedNote;
+              
+              // Track correctness for this specific note
               final bool? previous = _noteCorrectness[_currentNoteIndex];
               _noteCorrectness[_currentNoteIndex] = _isCorrect;
+              
+              // Increment score if this note is newly correct
               if (_isCorrect && previous != true) {
                 _correctNotesCount++;
               }
+              
+              // Update visual feedback color (green for correct, red for incorrect)
               _glowColorAnimation = ColorTween(
                 begin: Colors.transparent,
                 end: _isCorrect 
@@ -240,35 +330,48 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
     }
   }
 
+  // ============================================================================
+  // EXERCISE CONTROL - Start, pause, resume, and stop the exercise
+  // ============================================================================
+  
+  /// Show a 3-2-1 countdown before starting the exercise
   void _startCountdown() {
-    // Cancel any existing timers
+    // Cancel any existing timers to avoid conflicts
     _playbackTimer?.cancel();
     _countdownTimer?.cancel();
     
+    // Reset exercise state and show countdown overlay
     setState(() {
-      _countdown = 3;
-      _isPlaying = false;
-      _isPaused = false;
-      _currentTime = 0.0;
-      _showCountdown = true;
+      _countdown = 3;                    // Start countdown at 3
+      _isPlaying = false;                // Not playing yet
+      _isPaused = false;                 // Not paused
+      _currentTime = 0.0;                // Reset to beginning
+      _showCountdown = true;             // Show countdown overlay
     });
 
+    // Create countdown timer that counts down every second
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       setState(() {
         if (_countdown > 1) {
-          _countdown--;
+          _countdown--;                   // Count down: 3, 2, 1
         } else {
-          _countdown = 0;
-          _showCountdown = false;
-          _countdownTimer?.cancel();
-          _startExercise();
+          _countdown = 0;                 // Countdown finished
+          _showCountdown = false;         // Hide countdown overlay
+          _countdownTimer?.cancel();      // Stop countdown timer
+          _startExercise();               // Begin the actual exercise
         }
       });
     });
   }
 
+  // ============================================================================
+  // SETTINGS DIALOG - Allow user to adjust exercise speed (BPM)
+  // ============================================================================
+  
+  /// Show a dialog for adjusting the exercise speed (beats per minute)
   void _showSettingsDialog() {
-    double tempBpm = _bpm; // Temporary variable to hold BPM value during slider changes
+    // Use temporary variable so changes only apply when user confirms
+    double tempBpm = _bpm;
     
     showDialog(
       context: context,
@@ -280,7 +383,7 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
                 bottom: MediaQuery.of(context).viewInsets.bottom,
               ),
               child: AlertDialog(
-                backgroundColor: const Color(0xFF232B39),
+                backgroundColor: const Color(0xFF232B39), // Dark blue background
                 title: const Text(
                   'Note Speed Settings',
                   style: TextStyle(color: Colors.white),
@@ -452,39 +555,53 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
     );
   }
 
+  /// Begin playing the exercise after countdown finishes
   void _startExercise() {
     if (!mounted) return;
     
-    // Cancel any existing timers
+    // ============================================================================
+    // EXERCISE STARTUP - Initialize all systems for exercise playback
+    // ============================================================================
+    
+    // Cancel any existing timers to avoid conflicts
     _playbackTimer?.cancel();
     
+    // Reset all exercise state variables
     setState(() {
-      _isPlaying = true;
-      _isPaused = false;
-      _reachedEnd = false;
-      _currentTime = 0.0;
-      _currentNoteIndex = 0;
-      _noteCorrectness.clear(); // Clear the correctness history when starting
-      _correctNotesCount = 0;
+      _isPlaying = true;                  // Exercise is now playing
+      _isPaused = false;                  // Not paused
+      _reachedEnd = false;                // Haven't reached the end yet
+      _currentTime = 0.0;                 // Start at beginning (0 seconds)
+      _currentNoteIndex = 0;              // Start with first note
+      _noteCorrectness.clear();           // Clear previous exercise results
+      _correctNotesCount = 0;             // Reset score counter
     });
 
-    // Reset precise timing
-    _elapsedBeforePauseSec = 0.0;
-    _playbackStopwatch?.stop();
-    _playbackStopwatch = Stopwatch()..start();
+    // ============================================================================
+      // TIMING SYSTEM SETUP - Set up precise timing for exercise playback
+  // ============================================================================
+  
+      // Reset timing variables for accurate playback
+    _elapsedBeforePauseSec = 0.0;        // No time accumulated from pauses
+    _playbackStopwatch?.stop();          // Stop any existing stopwatch
+    _playbackStopwatch = Stopwatch()..start(); // Start fresh stopwatch
 
-    // Ensure the first expected note is set at start
+    // ============================================================================
+    // SYSTEM INITIALIZATION - Start all required systems
+    // ============================================================================
+    
+    // Set the first note that should be played
     _scoreFuture.then((score) {
       if (!mounted) return;
       _updateExpectedNote(score);
     });
 
-    // Start pitch detection
+    // Start listening to microphone for pitch detection
     _startPitchDetection();
 
-    // Start metronome if enabled
+    // Initialize metronome if it's enabled
     if (_metronomeEnabled) {
-      _lastWholeBeat = -1; // realign to next detected beat
+      _lastWholeBeat = -1; // Reset beat counter to align with next beat
     }
 
     // Get the score from the future
@@ -912,18 +1029,27 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF1A1A1A),
+      backgroundColor: const Color(0xFF1A1A1A), // Dark background for better contrast
       body: Stack(
         children: [
+          // ============================================================================
+          // MAIN CONTENT - The exercise interface (music sheet, controls, etc.)
+          // ============================================================================
           Center(
             child: _buildBody(),
           ),
+          
+          // ============================================================================
+          // NAVIGATION & UI OVERLAYS - Back button, level indicator, score display
+          // ============================================================================
+          
+          // Back button (top-left)
           Positioned(
             top: 8,
             left: 8,
             child: Container(
               decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.3),
+                color: Colors.black.withOpacity(0.3), // Semi-transparent background
                 borderRadius: BorderRadius.circular(12),
               ),
               child: IconButton(
@@ -1027,7 +1153,15 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
     );
   }
 
+  // ============================================================================
+  // BODY BUILDER - Main content area of the exercise screen
+  // ============================================================================
+  
+  /// Build the main content area, handling loading, errors, and the exercise interface
   Widget _buildBody() {
+    // ============================================================================
+    // LOADING STATE - Show spinner while music score is loading
+    // ============================================================================
     if (_isLoading) {
       return const Center(
         child: CircularProgressIndicator(
@@ -1036,6 +1170,9 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
       );
     }
 
+    // ============================================================================
+    // ERROR STATE - Show error message with retry button if loading failed
+    // ============================================================================
     if (_error != null) {
       return Center(
         child: Column(
@@ -1086,19 +1223,22 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   const SizedBox(height: 12),
-                  // Music Sheet with glow (Flexible)
+                  
+                  // ============================================================================
+                  // MUSIC SHEET DISPLAY - The main visual area showing the musical notation
+                  // ============================================================================
                   Flexible(
-                    flex: 5,
+                    flex: 5, // Takes up most of the screen space
                     child: Padding(
                       padding: const EdgeInsets.only(top: 24, left: 24, right: 24, bottom: 12),
                       child: Container(
                         alignment: Alignment.centerLeft,
                         decoration: BoxDecoration(
-                          color: Colors.white,
+                          color: Colors.white, // White background for music sheet
                           borderRadius: BorderRadius.circular(18),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.10),
+                              color: Colors.black.withOpacity(0.10), // Subtle shadow
                               blurRadius: 16,
                               spreadRadius: 1,
                               offset: const Offset(0, 6),
@@ -1107,49 +1247,54 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
                         ),
                         padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 0),
                         child: Align(
-                          alignment: const Alignment(-0.8, 0.0),
+                          alignment: const Alignment(-0.8, 0.0), // Align to left side
                           child: MusicSheet(
-                            score: score,
-                            isPlaying: _isPlaying,
-                            currentTime: _currentTime,
-                            currentNoteIndex: _currentNoteIndex,
-                            bpm: _bpm,
-                            isCorrect: _isCorrect,
+                            score: score,                    // The music data to display
+                            isPlaying: _isPlaying,           // Whether exercise is active
+                            currentTime: _currentTime,       // Current position in exercise
+                            currentNoteIndex: _currentNoteIndex, // Which note is current
+                            bpm: _bpm,                      // Speed of the exercise
+                            isCorrect: _isCorrect,           // Whether current note is correct
                           ),
                         ),
                       ),
                     ),
                   ),
-                  // Notes (horizontal scrollable row)
+                  // ============================================================================
+                  // NOTE PROGRESS ROW - Horizontal scrollable list showing all notes in order
+                  // ============================================================================
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 24),
                     child: Container(
                       height: 48,
                       decoration: BoxDecoration(
-                        color: const Color(0xFF181F2A),
+                        color: const Color(0xFF181F2A), // Dark blue background
                         borderRadius: BorderRadius.circular(14),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.white.withOpacity(0.10),
+                            color: Colors.white.withOpacity(0.10), // Subtle white glow
                             blurRadius: 8,
                             spreadRadius: 1,
                           ),
                         ],
                       ),
-                      child: _buildScrollableNoteRow(score),
+                      child: _buildScrollableNoteRow(score), // Build the scrollable note list
                     ),
                   ),
                   const SizedBox(height: 24),
-                  // Control buttons row (in a card)
+                  
+                  // ============================================================================
+                  // CONTROL BUTTONS - Play, pause, metronome, and other exercise controls
+                  // ============================================================================
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 32),
                     child: Container(
                       decoration: BoxDecoration(
-                        color: const Color(0xFF232B39),
+                        color: const Color(0xFF232B39), // Dark blue button container
                         borderRadius: BorderRadius.circular(18),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.blueAccent.withOpacity(0.13),
+                            color: Colors.blueAccent.withOpacity(0.13), // Blue accent shadow
                             blurRadius: 12,
                             spreadRadius: 1,
                           ),
@@ -1159,6 +1304,7 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
+                          // Previous Exercise Button (not yet implemented)
                           IconButton(
                             icon: const Icon(Icons.skip_previous, size: 28, color: Colors.white),
                             tooltip: 'Previous Exercise',
@@ -1166,6 +1312,8 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
                               // TODO: Implement previous exercise
                             },
                           ),
+                          
+                          // Metronome Toggle Button
                           IconButton(
                             icon: Icon(
                               _metronomeEnabled ? Icons.music_note : Icons.music_note_outlined,
@@ -1185,6 +1333,8 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
                               }
                             },
                           ),
+                          
+                          // Replay Button - Restart the current exercise
                           IconButton(
                             icon: const Icon(Icons.replay, size: 28, color: Colors.white),
                             tooltip: 'Replay',
@@ -1193,6 +1343,8 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
                               _startCountdown();
                             },
                           ),
+                          
+                          // Main Play/Pause Button - Controls exercise playback
                           IconButton(
                             icon: Icon(
                               _isPlaying ? Icons.pause : 
@@ -1214,6 +1366,8 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
                               }
                             },
                           ),
+                          
+                          // Next Exercise Button (not yet implemented)
                           IconButton(
                             icon: const Icon(Icons.skip_next, size: 28, color: Colors.white),
                             tooltip: 'Next Exercise',
@@ -1221,6 +1375,8 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
                               // TODO: Implement next exercise
                             },
                           ),
+                          
+                          // Settings Button - Open BPM adjustment dialog
                           IconButton(
                             icon: const Icon(Icons.settings, size: 26, color: Colors.white),
                             tooltip: 'Settings',
@@ -1240,26 +1396,42 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
     );
   }
 
+  // ============================================================================
+  // NOTE ROW BUILDER - Creates the horizontal scrollable list of notes
+  // ============================================================================
+  
+  /// Build a horizontal scrollable row showing all notes in the exercise
   Widget _buildScrollableNoteRow(Score score) {
+    // Extract all playable notes (excluding rests) from the score
     final notes = <String>[];
     for (final measure in score.measures) {
       for (final note in measure.notes) {
         if (!note.isRest) {
-          notes.add("${note.step}${note.octave}");
+          notes.add("${note.step}${note.octave}"); // Combine note name and octave (e.g., "A4", "C5")
         }
       }
     }
+    
+    // Create horizontal scrollable list of notes
     return ListView.separated(
-      controller: _noteScrollController,
-      scrollDirection: Axis.horizontal,
-      itemCount: notes.length,
+      controller: _noteScrollController,           // Controls scrolling behavior
+      scrollDirection: Axis.horizontal,            // Scroll left/right
+      itemCount: notes.length,                     // Total number of notes
       padding: const EdgeInsets.symmetric(horizontal: 18),
-      separatorBuilder: (context, idx) => const SizedBox(width: 12),
+      separatorBuilder: (context, idx) => const SizedBox(width: 12), // Space between notes
       itemBuilder: (context, idx) {
-        final isCurrentNote = idx == _currentNoteIndex;
-        final wasCorrect = _noteCorrectness[idx];
+        // Determine the current state of this note
+        final isCurrentNote = idx == _currentNoteIndex;    // Is this the note being played now?
+        final wasCorrect = _noteCorrectness[idx];          // Was this note played correctly before?
         
-        // Determine the color based on whether the note was correct or not
+        // ============================================================================
+        // NOTE COLOR LOGIC - Visual feedback based on note correctness
+        // ============================================================================
+        
+        // Choose color based on note status:
+        // - Current note: Green if correct, red if incorrect
+        // - Past notes: Green if was correct, red if was incorrect  
+        // - Future notes: White (neutral)
         Color noteColor;
         if (isCurrentNote) {
           noteColor = _isCorrect ? Colors.green.withOpacity(0.8) : Colors.red.withOpacity(0.8);
@@ -1322,15 +1494,22 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
     return totalBeats * beatUnitSeconds;
   }
 
+  // ============================================================================
+  // COMPLETION HANDLING - Show results and save progress when exercise finishes
+  // ============================================================================
+  
+  /// Display completion dialog with score and save results to database
   void _showCompletionDialog() {
     if (!mounted) return;
-    final int total = _totalPlayableNotes;
-    final int correct = _correctNotesCount.clamp(0, total);
+    
+    // Calculate final score statistics
+    final int total = _totalPlayableNotes;                    // Total notes in exercise
+    final int correct = _correctNotesCount.clamp(0, total);   // Correctly played notes
     final String percent = total > 0
-        ? ((correct / total) * 100).clamp(0, 100).toStringAsFixed(0)
+        ? ((correct / total) * 100).clamp(0, 100).toStringAsFixed(0)  // Percentage score
         : '0';
 
-    // Save practice session to database
+    // Save this practice session to the database for progress tracking
     _savePracticeSession(correct, total, percent);
 
     showDialog(
@@ -1383,24 +1562,34 @@ class _ExerciseScreenState extends State<ExerciseScreen> with SingleTickerProvid
     );
   }
 
+  // ============================================================================
+  // DATABASE OPERATIONS - Save practice results for progress tracking
+  // ============================================================================
+  
+  /// Save the completed practice session to the database
   Future<void> _savePracticeSession(int correctNotes, int totalNotes, String percentage) async {
     try {
+      // Get current timestamp for the session
       final now = DateTime.now();
+      
+      // Format date and time for database storage
       final date = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
       final time = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
-      final duration = _currentTime;
+      final duration = _currentTime; // Total time spent on this exercise
       
+      // Create session data object for database
       final session = {
-        'level': widget.level,
-        'score': correctNotes,
-        'total_notes': totalNotes,
-        'percentage': double.parse(percentage),
-        'practice_date': date,
-        'practice_time': time,
-        'duration_seconds': duration,
-        'created_at': now.toIso8601String(),
+        'level': widget.level,                    // Exercise difficulty level
+        'score': correctNotes,                    // Number of correctly played notes
+        'total_notes': totalNotes,                // Total notes in the exercise
+        'percentage': double.parse(percentage),   // Success percentage (0-100)
+        'practice_date': date,                    // Date of practice session
+        'practice_time': time,                    // Time of practice session
+        'duration_seconds': duration,             // How long the session took
+        'created_at': now.toIso8601String(),      // ISO timestamp for sorting
       };
 
+      // Save to database using the DatabaseHelper
       final dbHelper = DatabaseHelper();
       await dbHelper.insertPracticeSession(session);
     } catch (e) {

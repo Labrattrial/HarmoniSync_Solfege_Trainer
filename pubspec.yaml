@@ -42,6 +42,8 @@ dependencies:
   sqflite: ^2.3.2 # For SQLite database
   google_fonts: ^6.1.0
   file_picker: ^8.0.0+1 # For file picking
+  http: ^1.1.0 # For HTTP requests to Python server
+  open_file: ^3.2.1 # Open files with installed apps
 dev_dependencies:
   flutter_test:
     sdk: flutter
