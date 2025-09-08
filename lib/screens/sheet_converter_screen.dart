@@ -28,7 +28,7 @@ class _SheetConverterScreenState extends State<SheetConverterScreen> with Single
   static const Color _brandAccent = Color(0xFFD6A83D);
   
   // Conversion settings (hardcode your server host here)
-  static const String _serverUrl = 'http://192.168.1.10:5000'; // e.g., http://192.168.1.50:5000 or http://10.0.2.2:5000
+  static const String _serverUrl = 'http://192.168.1.12:5000'; // e.g., http://192.168.1.50:5000 or http://10.0.2.2:5000
   bool _isConverting = false; // Track conversion status
   String? _conversionError; // Store any conversion errors
   

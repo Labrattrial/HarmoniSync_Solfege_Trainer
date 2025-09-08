@@ -15,14 +15,14 @@ import 'dart:io';
 
 
 // ============================================================================
-// EXERCISE SCREEN - Main screen for practicing pitch detection exercises
+// CONVERTED MUSIC SCREEN - Practice with converted MusicXML pieces
 // ============================================================================
 // This screen handles:
-// - Loading and displaying music scores
-// - Playing exercises with adjustable BPM
+// - Loading and displaying music scores from files
+// - Playing sessions with adjustable BPM
 // - Real-time pitch detection using microphone
 // - Metronome functionality
-// - Exercise controls (play, pause, replay)
+// - Piece controls (play, pause, replay)
 // - Score tracking and progress saving
 
 class ConvertedMusicScreen extends StatefulWidget {
@@ -41,10 +41,10 @@ class ConvertedMusicScreen extends StatefulWidget {
 
 class _ConvertedMusicScreenState extends State<ConvertedMusicScreen> with SingleTickerProviderStateMixin {
   // ============================================================================
-  // STATE VARIABLES - Track the current state of the exercise
+  // STATE VARIABLES - Track the current state of the session
   // ============================================================================
   
-  // Exercise Data & Loading
+  // Session Data & Loading
   late Future<Score> _scoreFuture;        // Holds the music score data
   bool _isLoading = true;                 // Shows loading spinner while score loads
   String? _error;                         // Stores any error messages
@@ -113,7 +113,7 @@ class _ConvertedMusicScreenState extends State<ConvertedMusicScreen> with Single
     super.initState();
     
     // ============================================================================
-    // INITIALIZATION - Set up the exercise screen when it first loads
+    // INITIALIZATION - Set up the converted music screen when it first loads
     // ============================================================================
     
     // Force landscape orientation for better music sheet viewing
@@ -343,7 +343,7 @@ class _ConvertedMusicScreenState extends State<ConvertedMusicScreen> with Single
   }
 
   // ============================================================================
-  // EXERCISE CONTROL - Start, pause, resume, and stop the exercise
+  // SESSION CONTROL - Start, pause, resume, and stop the session
   // ============================================================================
   
   /// Show a 3-2-1 countdown before starting the exercise
@@ -567,18 +567,18 @@ class _ConvertedMusicScreenState extends State<ConvertedMusicScreen> with Single
     );
   }
 
-  /// Begin playing the exercise after countdown finishes
+  /// Begin playing the session after countdown finishes
   void _startExercise() {
     if (!mounted) return;
     
     // ============================================================================
-    // EXERCISE STARTUP - Initialize all systems for exercise playback
+    // SESSION STARTUP - Initialize all systems for session playback
     // ============================================================================
     
     // Cancel any existing timers to avoid conflicts
     _playbackTimer?.cancel();
     
-    // Reset all exercise state variables
+    // Reset all session state variables
     setState(() {
       _isPlaying = true;                  // Exercise is now playing
       _isPaused = false;                  // Not paused
@@ -590,7 +590,7 @@ class _ConvertedMusicScreenState extends State<ConvertedMusicScreen> with Single
     });
 
     // ============================================================================
-      // TIMING SYSTEM SETUP - Set up precise timing for exercise playback
+      // TIMING SYSTEM SETUP - Set up precise timing for session playback
   // ============================================================================
   
       // Reset timing variables for accurate playback
@@ -1051,7 +1051,7 @@ class _ConvertedMusicScreenState extends State<ConvertedMusicScreen> with Single
       body: Stack(
         children: [
           // ============================================================================
-          // MAIN CONTENT - The exercise interface (music sheet, controls, etc.)
+          // MAIN CONTENT - The converted piece interface (music sheet, controls, etc.)
           // ============================================================================
           Center(
             child: _buildBody(),
@@ -1172,10 +1172,10 @@ class _ConvertedMusicScreenState extends State<ConvertedMusicScreen> with Single
   }
 
   // ============================================================================
-  // BODY BUILDER - Main content area of the exercise screen
+  // BODY BUILDER - Main content area of the converted music screen
   // ============================================================================
   
-  /// Build the main content area, handling loading, errors, and the exercise interface
+  /// Build the main content area, handling loading, errors, and the session interface
   Widget _buildBody() {
     // ============================================================================
     // LOADING STATE - Show spinner while music score is loading
@@ -1325,7 +1325,7 @@ class _ConvertedMusicScreenState extends State<ConvertedMusicScreen> with Single
                           // Previous Exercise Button (not yet implemented)
                           IconButton(
                             icon: const Icon(Icons.skip_previous, size: 28, color: Colors.white),
-                            tooltip: 'Previous Exercise',
+                            tooltip: 'Previous Piece',
                             onPressed: () {
                               // TODO: Implement previous exercise
                             },
@@ -1388,7 +1388,7 @@ class _ConvertedMusicScreenState extends State<ConvertedMusicScreen> with Single
                           // Next Exercise Button (not yet implemented)
                           IconButton(
                             icon: const Icon(Icons.skip_next, size: 28, color: Colors.white),
-                            tooltip: 'Next Exercise',
+                            tooltip: 'Next Piece',
                             onPressed: () {
                               // TODO: Implement next exercise
                             },
@@ -1538,7 +1538,7 @@ class _ConvertedMusicScreenState extends State<ConvertedMusicScreen> with Single
           backgroundColor: const Color(0xFF232B39),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: const Text(
-            'Exercise Complete',
+            'Session Complete',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
           ),
           content: Column(
