@@ -185,13 +185,14 @@ class _ConvertedMusicScreenState extends State<ConvertedMusicScreen> with Single
 
   /// Set up the metronome player for beat sounds
   Future<void> _initializeMetronomePlayer() async {
-    try {
-      await _metronomePlayer.openPlayer();
-    } catch (e) {
-      // Fallback silently if player cannot open
-      print('Error opening metronome player: $e');
-    }
+  _metronomePlayer = FlutterSoundPlayer();
+  try {
+    await _metronomePlayer.openPlayer();
+  } catch (e) {
+    debugPrint("Failed to initialize metronome player: $e");
   }
+}
+
 
   /// Web audio unlock function (not needed on mobile)
   Future<void> _unlockWebAudioIfNeeded() async { return; }
@@ -940,67 +941,82 @@ class _ConvertedMusicScreenState extends State<ConvertedMusicScreen> with Single
   }
 
   void _stopMetronome({bool immediate = false}) {
-    _metronomeTimer?.cancel();
-    _metronomeTimer = null;
-    // Immediately stop any in-flight metronome sound to avoid extra click at the end
-    try {
-      if (_metronomePlayer.isOpen() && _metronomePlayer.isPlaying) {
-        if (immediate) {
-          // Hard stop (pause/stop actions)
+  _metronomeTimer?.cancel();
+  _metronomeTimer = null;
+
+  // Immediately stop any in-flight metronome sound to avoid extra click at the end
+  try {
+    if (_metronomePlayer.isOpen() && _metronomePlayer.isPlaying) {
+      if (immediate) {
+        try {
           _metronomePlayer.stopPlayer();
-        } else {
-          // Let current click finish naturally at sheet end
-          // Do nothing; player will end on its own
-        }
+        } catch (e) {}
+      } else {
+        // let current click finish naturally
       }
-    } catch (_) {}
-    if (mounted) setState(() => _metronomeFlash = false);
-  }
+    }
+  } catch (e) {}
+
+  if (mounted) setState(() => _metronomeFlash = false);
+}
+
 
   Future<void> _playMetronomeClick({bool downbeat = false}) async {
-    try {
-      if (!_metronomePlayer.isOpen()) {
-        try { await _metronomePlayer.openPlayer(); } catch (_) {}
-        if (!_metronomePlayer.isOpen()) {
-          // Fallback if we still cannot open
-          try { SystemSound.play(SystemSoundType.click); } catch (_) {}
-          return;
-        }
-      }
-      // Avoid cutting the click if it's still within its duration; otherwise, force stop to allow a new click
-      if (_metronomePlayer.isPlaying) {
-        final int nowUs = DateTime.now().microsecondsSinceEpoch;
-        final int elapsedMs = ((nowUs - _lastClickStartUs) / 1000).round();
-        if (elapsedMs < _clickDurationMs - 5) {
-          // Still in click window → skip retrigger to avoid cut
-          return;
-        }
-        // Click should have finished by now but player still reports playing → stop to start the next
-        try { await _metronomePlayer.stopPlayer(); } catch (_) {}
-      }
-      final Uint8List data = _generateClickPcm(
-        frequencyHz: downbeat ? 1400 : 1000,
-        durationMs: _clickDurationMs,
-        sampleRate: 44100,
-        amplitude: downbeat ? 0.6 : 0.4,
-      );
-      _lastClickStartUs = DateTime.now().microsecondsSinceEpoch;
+  try {
+    // Ensure player is open
+    if (!_metronomePlayer.isOpen()) {
       try {
-        await _metronomePlayer.startPlayer(
-          fromDataBuffer: data,
-          codec: Codec.pcm16,
-          numChannels: 1,
-          sampleRate: 44100,
-        );
-      } catch (_) {
-        // Fallback to system click if start failed
-        try { SystemSound.play(SystemSoundType.click); } catch (_) {}
+        await _metronomePlayer.openPlayer();
+      } catch (e) {
+        // fallback system sound if player can't open
+        try {
+          SystemSound.play(SystemSoundType.click);
+        } catch (_) {}
+        return;
       }
-    } catch (e) {
-      // As a fallback, try a system click
-      try { SystemSound.play(SystemSoundType.click); } catch (_) {}
     }
+
+    // If already playing, check if we need to stop first
+    if (_metronomePlayer.isPlaying) {
+      final int nowUs = DateTime.now().microsecondsSinceEpoch;
+      final int elapsedMs = ((nowUs - _lastClickStartUs) / 1000).round();
+      if (elapsedMs < _clickDurationMs - 5) {
+        return; // still playing, skip retrigger
+      }
+      try {
+        await _metronomePlayer.stopPlayer();
+      } catch (e) {}
+    }
+
+    // Generate PCM data for click
+    final Uint8List data = _generateClickPcm(
+      frequencyHz: downbeat ? 1400 : 1000,
+      durationMs: _clickDurationMs,
+      sampleRate: 44100,
+      amplitude: downbeat ? 0.6 : 0.4,
+    );
+
+    _lastClickStartUs = DateTime.now().microsecondsSinceEpoch;
+
+    try {
+      await _metronomePlayer.startPlayer(
+        fromDataBuffer: data,
+        codec: Codec.pcm16,
+        numChannels: 1,
+        sampleRate: 44100,
+      );
+    } catch (e) {
+      try {
+        SystemSound.play(SystemSoundType.click);
+      } catch (_) {}
+    }
+  } catch (e) {
+    try {
+      SystemSound.play(SystemSoundType.click);
+    } catch (_) {}
   }
+}
+
 
   // Web beep removed; native click path only
 
@@ -1062,45 +1078,45 @@ class _ConvertedMusicScreenState extends State<ConvertedMusicScreen> with Single
           // ============================================================================
           
           // Back button (top-left)
-          Positioned(
-            top: 8,
-            left: 8,
-            child: Container(
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.3), // Semi-transparent background
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: IconButton(
-                icon: const Icon(Icons.arrow_back, color: Colors.white, size: 28),
-                onPressed: () => Navigator.of(context).pop(),
-                padding: const EdgeInsets.all(8),
-                constraints: const BoxConstraints(),
-                style: IconButton.styleFrom(
-                  backgroundColor: Colors.transparent,
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            top: 16,
-            left: 64,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.3),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                'Converted: ${widget.fileName}',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ),
-          // Score indicator centered at top
+//           Positioned(
+//             top: 8,
+//             left: 8,
+//             child: Container(
+//               decoration: BoxDecoration(
+//                 color: Colors.black.withOpacity(0.3), // Semi-transparent background
+//                 borderRadius: BorderRadius.circular(12),
+//               ),
+//               child: IconButton(
+//                 icon: const Icon(Icons.arrow_back, color: Colors.white, size: 28),
+//                 onPressed: () => Navigator.of(context).pop(),
+//                 padding: const EdgeInsets.all(😎,
+//                 constraints: const BoxConstraints(),
+//                 style: IconButton.styleFrom(
+//                   backgroundColor: Colors.transparent,
+//                 ),
+//               ),
+//             ),
+//           ),
+// //           Positioned(
+//             top: 16,
+//             left: 64,
+//             child: Container(
+//               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 😎,
+//               decoration: BoxDecoration(
+//                 color: Colors.black.withOpacity(0.3),
+//                 borderRadius: BorderRadius.circular(12),
+//               ),
+//               child: Text(
+//                 'Converted: ${widget.fileName}',
+//                 style: const TextStyle(
+//                   color: Colors.white,
+//                   fontSize: 18,
+//                   fontWeight: FontWeight.bold,
+//                 ),
+//               ),
+//             ),
+//           ),
+//           // Score indicator centered at top
           Positioned(
             top: 16,
             left: 0,
@@ -1246,9 +1262,9 @@ class _ConvertedMusicScreenState extends State<ConvertedMusicScreen> with Single
                   // MUSIC SHEET DISPLAY - The main visual area showing the musical notation
                   // ============================================================================
                   Flexible(
-                    flex: 5, // Takes up most of the screen space
+                    flex: 10, // Takes up most of the screen space
                     child: Padding(
-                      padding: const EdgeInsets.only(top: 24, left: 24, right: 24, bottom: 12),
+                      padding: const EdgeInsets.only(top: 10, left: 20, right: 24, bottom: 7),
                       child: Container(
                         alignment: Alignment.centerLeft,
                         decoration: BoxDecoration(
@@ -1263,9 +1279,9 @@ class _ConvertedMusicScreenState extends State<ConvertedMusicScreen> with Single
                             ),
                           ],
                         ),
-                        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 0),
+                        padding: const EdgeInsets.symmetric(vertical: 0, horizontal: 0),
                         child: Align(
-                          alignment: const Alignment(-0.8, 0.0), // Align to left side
+                          alignment: const Alignment(-0.15, 0.0), // Align to left side
                           child: MusicSheet(
                             score: score,                    // The music data to display
                             isPlaying: _isPlaying,           // Whether exercise is active
@@ -1454,7 +1470,7 @@ class _ConvertedMusicScreenState extends State<ConvertedMusicScreen> with Single
         if (isCurrentNote) {
           noteColor = _isCorrect ? Colors.green.withOpacity(0.8) : Colors.red.withOpacity(0.8);
         } else if (wasCorrect != null) {
-          noteColor = wasCorrect ? Colors.green.withOpacity(0.8) : Colors.red.withOpacity(0.8);
+          noteColor = wasCorrect ? Colors.green.withOpacity(0.8): Colors.red.withOpacity(0.8);
         } else {
           noteColor = Colors.white;
         }

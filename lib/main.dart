@@ -77,7 +77,7 @@ class MyApp extends StatelessWidget {
    );
 
    return MaterialApp(
-     title: 'My Music Trainer',
+     title: 'HarmoniSync',
      debugShowCheckedModeBanner: false,
      themeMode: ThemeMode.system,
      theme: baseLight.copyWith(

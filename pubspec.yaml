@@ -1,4 +1,4 @@
-name: pitch_detector
+name: HarmoniSync
 description: "A new Flutter project."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
@@ -41,7 +41,7 @@ dependencies:
   path: ^1.8.3 # For path manipulation
   sqflite: ^2.3.2 # For SQLite database
   google_fonts: ^6.1.0
-  file_picker: ^8.0.0+1 # For file picking
+  file_picker: ^10.3.2 # For file picking
   http: ^1.1.0 # For HTTP requests to Python server
   open_file: ^3.2.1 # Open files with installed apps\n  shared_preferences: ^2.2.2 # For persistent storage
   shared_preferences: ^2.5.3
@@ -54,7 +54,7 @@ dev_dependencies:
   # activated in the `analysis_options.yaml` file located at the root of your
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
-  flutter_lints: ^2.0.0
+  flutter_lints: ^5.0.0
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

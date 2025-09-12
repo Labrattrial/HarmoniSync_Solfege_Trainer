@@ -27,8 +27,16 @@ class _SheetConverterScreenState extends State<SheetConverterScreen> with Single
   static const Color _brandPrimary = Color(0xFF070372);
   static const Color _brandAccent = Color(0xFFD6A83D);
   
+<<<<<<< HEAD
   // Conversion settings (hardcode your server host here)
   static const String _serverUrl = 'http://192.168.1.12:5000'; // e.g., http://192.168.1.50:5000 or http://10.0.2.2:5000
+=======
+  // Conversion settings - Choose the appropriate URL based on your setup:
+  // For Android Emulator: 'http://10.0.2.2:5000'
+  // For Physical Device: 'http://192.168.100.51:5000' (your computer's IP)
+  // For Desktop/Web: 'http://localhost:5000'
+  static const String _serverUrl = 'http://192.168.1.23:5000';
+>>>>>>> aec977e (Updated)
   bool _isConverting = false; // Track conversion status
   String? _conversionError; // Store any conversion errors
   
@@ -154,19 +162,27 @@ class _SheetConverterScreenState extends State<SheetConverterScreen> with Single
     try {
       // Request storage permission on Android
       if (Platform.isAndroid) {
-        var status = await Permission.storage.status;
+        // For Android 13+ (API 33+), use different permissions
+        var status = await Permission.manageExternalStorage.status;
         if (!status.isGranted) {
-          status = await Permission.storage.request();
+          status = await Permission.manageExternalStorage.request();
           if (!status.isGranted) {
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Storage permission is required to select PDF files'),
-                  backgroundColor: Colors.orange,
-                ),
-              );
+            // Fallback to storage permission for older Android versions
+            status = await Permission.storage.status;
+            if (!status.isGranted) {
+              status = await Permission.storage.request();
+              if (!status.isGranted) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Storage permission is required to select PDF files'),
+                      backgroundColor: Colors.orange,
+                    ),
+                  );
+                }
+                return;
+              }
             }
-            return;
           }
         }
       }
@@ -175,20 +191,83 @@ class _SheetConverterScreenState extends State<SheetConverterScreen> with Single
         type: FileType.custom,
         allowedExtensions: ['pdf'],
         allowMultiple: false, // single file per flow
+        withData: false, // Don't load file data into memory
+        withReadStream: false, // Don't create read stream
       );
 
       if (result != null && result.files.isNotEmpty) {
         final file = result.files.first;
-        if (file.path == null) return;
+        
+        // Validate file path
+        if (file.path == null || file.path!.isEmpty) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Invalid file path. Please try again.'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+          return;
+        }
+
+        // Validate file exists
+        final fileObj = File(file.path!);
+        if (!await fileObj.exists()) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Selected file does not exist. Please try again.'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+          return;
+        }
+
+        // Validate file size (limit to 50MB)
+        final fileSize = await fileObj.length();
+        const maxSize = 50 * 1024 * 1024; // 50MB
+        if (fileSize > maxSize) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('File size too large. Please select a PDF smaller than 50MB.'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+          return;
+        }
+
+        // Validate file extension
+        if (!file.name.toLowerCase().endsWith('.pdf')) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Please select a valid PDF file.'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+          return;
+        }
+
         setState(() {
           _currentConvertingName = file.name;
           _isConverting = true;
           _conversionError = null;
         });
+        
         // auto-start conversion
-        await _convertPdfToMusicXml(File(file.path!));
+        await _convertPdfToMusicXml(fileObj);
       }
     } catch (e) {
+      setState(() {
+        _isConverting = false;
+        _currentConvertingName = null;
+      });
+      
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -232,22 +311,19 @@ class _SheetConverterScreenState extends State<SheetConverterScreen> with Single
         _conversionError = null;
       });
 
-      final uri = Uri.parse('$_serverUrl/convert');
-      final request = http.MultipartRequest('POST', uri);
-      request.files.add(await http.MultipartFile.fromPath('file', pdfFile.path));
-
-      final streamedResponse = await request.send();
-      final response = await http.Response.fromStream(streamedResponse);
-
-      if (response.statusCode == 200) {
-        final result = jsonDecode(response.body) as Map<String, dynamic>;
-        final musicXml = (result['musicxml'] as String?) ?? '';
-        final savedPath = await _saveMusicXml(musicXml, p.basename(pdfFile.path));
-
+      // First, test server connection
+      try {
+        final healthResponse = await http.get(
+          Uri.parse('$_serverUrl/health'),
+          headers: {'Content-Type': 'application/json'},
+        ).timeout(const Duration(seconds: 10));
+        
+        if (healthResponse.statusCode != 200) {
+          throw Exception('Server health check failed with status: ${healthResponse.statusCode}');
+        }
+      } catch (e) {
         setState(() {
-          final fileName = p.basename(pdfFile.path);
-          _conversionResults[fileName] = savedPath;
-          _convertedItems.insert(0, {'name': fileName, 'path': savedPath});
+          _conversionError = 'Cannot connect to server: $e';
           _isConverting = false;
           _currentConvertingName = null;
         });
@@ -255,22 +331,94 @@ class _SheetConverterScreenState extends State<SheetConverterScreen> with Single
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Saved as: $savedPath'),
-              backgroundColor: Colors.green,
+              content: Text('Server connection failed: $e\nPlease check if the server is running at $_serverUrl'),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 5),
             ),
           );
         }
+        return;
+      }
+
+      // Proceed with conversion
+      final uri = Uri.parse('$_serverUrl/convert');
+      final request = http.MultipartRequest('POST', uri);
+      
+      // Add file with proper headers
+      request.files.add(await http.MultipartFile.fromPath(
+        'file', 
+        pdfFile.path,
+        filename: p.basename(pdfFile.path),
+      ));
+
+      // Set timeout for the request
+      final streamedResponse = await request.send().timeout(const Duration(minutes: 5));
+      final response = await http.Response.fromStream(streamedResponse);
+
+      if (response.statusCode == 200) {
+        try {
+          final result = jsonDecode(response.body) as Map<String, dynamic>;
+          final musicXml = (result['musicxml'] as String?) ?? '';
+          
+          if (musicXml.isEmpty) {
+            throw Exception('Server returned empty MusicXML content');
+          }
+          
+          final savedPath = await _saveMusicXml(musicXml, p.basename(pdfFile.path));
+
+          setState(() {
+            final fileName = p.basename(pdfFile.path);
+            _conversionResults[fileName] = savedPath;
+            _convertedItems.insert(0, {'name': fileName, 'path': savedPath});
+            _isConverting = false;
+            _currentConvertingName = null;
+          });
+
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Successfully converted: ${p.basename(pdfFile.path)}'),
+                backgroundColor: Colors.green,
+              ),
+            );
+          }
+        } catch (e) {
+          setState(() {
+            _conversionError = 'Failed to parse server response: $e';
+            _isConverting = false;
+            _currentConvertingName = null;
+          });
+
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Failed to parse server response: $e'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+        }
       } else {
+        String errorMessage = 'Server error: ${response.statusCode}';
+        try {
+          final errorBody = jsonDecode(response.body) as Map<String, dynamic>;
+          errorMessage += ' - ${errorBody['error'] ?? response.body}';
+        } catch (e) {
+          errorMessage += ' - ${response.body}';
+        }
+        
         setState(() {
-          _conversionError = 'Server error: ${response.statusCode} - ${response.body}';
+          _conversionError = errorMessage;
           _isConverting = false;
+          _currentConvertingName = null;
         });
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Conversion failed: ${response.body}'),
+              content: Text('Conversion failed: $errorMessage'),
               backgroundColor: Colors.red,
+              duration: const Duration(seconds: 5),
             ),
           );
         }
@@ -279,17 +427,27 @@ class _SheetConverterScreenState extends State<SheetConverterScreen> with Single
       setState(() {
         _conversionError = 'Connection error: $e';
         _isConverting = false;
+        _currentConvertingName = null;
       });
 
       if (mounted) {
+        String errorMsg = 'Connection failed: $e';
+        if (e.toString().contains('TimeoutException')) {
+          errorMsg = 'Request timed out. The server may be processing a large file.';
+        } else if (e.toString().contains('SocketException')) {
+          errorMsg = 'Cannot connect to server. Please check the server URL and ensure it\'s running.';
+        }
+        
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Connection failed: $e'),
+            content: Text(errorMsg),
             backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
           ),
         );
       }
     }
+    
     // Save the updated list
     await _saveConvertedItems();
   }
@@ -306,13 +464,31 @@ class _SheetConverterScreenState extends State<SheetConverterScreen> with Single
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Server Settings'),
-        content: const Text(
-          'The server URL is hardcoded in the app. Update _serverUrl in SheetConverterScreen to change it.',
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Current URL: $_serverUrl'),
+            const SizedBox(height: 16),
+            const Text('Available URLs:'),
+            const Text('• http://192.168.100.51:5000 (Physical Device)'),
+            const Text('• http://10.0.2.2:5000 (Android Emulator)'),
+            const Text('• http://localhost:5000 (Desktop/Web)'),
+            const SizedBox(height: 16),
+            const Text('Update _serverUrl in SheetConverterScreen to change it.'),
+          ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('Close'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _testServerConnection();
+            },
+            child: const Text('Test Connection'),
           ),
         ],
       ),
@@ -322,27 +498,41 @@ class _SheetConverterScreenState extends State<SheetConverterScreen> with Single
   /// Test connection to the Flask server
   Future<void> _testServerConnection() async {
     try {
-      final response = await http.get(Uri.parse('$_serverUrl/health'));
+      final response = await http.get(
+        Uri.parse('$_serverUrl/health'),
+        headers: {'Content-Type': 'application/json'},
+      ).timeout(const Duration(seconds: 10));
+      
       if (response.statusCode == 200) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Server connection successful!'),
+          SnackBar(
+            content: Text('Server connection successful!\nServer URL: $_serverUrl'),
             backgroundColor: Colors.green,
+            duration: const Duration(seconds: 3),
           ),
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Server responded with status: ${response.statusCode}'),
+            content: Text('Server responded with status: ${response.statusCode}\nResponse: ${response.body}'),
             backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 5),
           ),
         );
       }
     } catch (e) {
+      String errorMsg = 'Cannot connect to server: $e';
+      if (e.toString().contains('TimeoutException')) {
+        errorMsg = 'Connection timed out. Please check if the server is running at $_serverUrl';
+      } else if (e.toString().contains('SocketException')) {
+        errorMsg = 'Network error. Please check your connection and server URL: $_serverUrl';
+      }
+      
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Cannot connect to server: $e'),
+          content: Text(errorMsg),
           backgroundColor: Colors.red,
+          duration: const Duration(seconds: 5),
         ),
       );
     }
