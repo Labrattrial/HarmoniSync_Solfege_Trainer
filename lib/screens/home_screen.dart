@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'main_navigation_screen.dart';
+import '../services/first_launch_service.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -81,20 +82,23 @@ class HomeScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 36),
                     SizedBox(
-                      width: 220,
+                      width: double.infinity,
                       child: ElevatedButton.icon(
                         style: ElevatedButton.styleFrom(
                           backgroundColor: theme.colorScheme.primary,
                           foregroundColor: Color(0xFFF5F5DD),
                           elevation: 0,
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                          padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
+                            borderRadius: BorderRadius.circular(16),
                           ),
                         ),
                         icon: const Icon(Icons.play_arrow_rounded),
                         label: const Text('Start Practice'),
-                        onPressed: () {
+                        onPressed: () async {
+                          // Mark first launch as completed
+                          await FirstLaunchService.setFirstLaunchCompleted();
+                          
                           Navigator.pushReplacement(
                             context,
                             MaterialPageRoute(builder: (context) => const MainNavigationScreen()),

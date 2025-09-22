@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'home_screen.dart';
+import 'main_navigation_screen.dart';
+import '../services/first_launch_service.dart';
 
 class WelcomeScreen extends StatelessWidget {
   const WelcomeScreen({super.key});
@@ -122,11 +124,22 @@ class WelcomeScreen extends StatelessWidget {
                           ),
                           icon: const Icon(Icons.play_arrow_rounded),
                           label: const Text('Let\'s Start'),
-                          onPressed: () {
-                            Navigator.pushReplacement(
-                              context,
-                              MaterialPageRoute(builder: (context) => const HomeScreen()),
-                            );
+                          onPressed: () async {
+                            final isFirstLaunch = await FirstLaunchService.isFirstLaunch();
+                            
+                            if (isFirstLaunch) {
+                              // First time - show home screen
+                              Navigator.pushReplacement(
+                                context,
+                                MaterialPageRoute(builder: (context) => const HomeScreen()),
+                              );
+                            } else {
+                              // Not first time - go directly to practice screen
+                              Navigator.pushReplacement(
+                                context,
+                                MaterialPageRoute(builder: (context) => const MainNavigationScreen()),
+                              );
+                            }
                           },
                         ),
                       ),
